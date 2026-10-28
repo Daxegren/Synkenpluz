@@ -1,4 +1,4 @@
-import { allocate, assertMinor, type Minor } from '../domain/money.js';
+import { allocate, assertMinor, checkedAdd, type Minor } from '../domain/money.js';
 import type {
   Invoice,
   LedgerCommand,
@@ -22,7 +22,7 @@ import type {
 export function reconcile(input: ReconcileInput): ReconcileResult {
   const { payout } = input;
 
-  const rejection = validatePayout(payout);
+  const rejection = validatePayout(payout) ?? validateInvoiceIds(input.invoices);
   if (rejection) return { status: 'rejected', commands: [], exceptions: [rejection] };
 
   const invoices = new Map<string, WorkingInvoice>(
@@ -30,14 +30,23 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
   );
   const byReference = indexByReference(input.invoices);
 
+  const settled = input.settledLineIds ?? new Set<string>();
   const commands: LedgerCommand[] = [];
   const exceptions: ReconcileException[] = [];
-  const keyFor = (lineId: string, kind: string) => `${input.tenantId}:${payout.id}:${lineId}:${kind}`;
+  const enc = encodeURIComponent;
+  // Delarna kodas så att ':' i ett id aldrig kan ge samma nyckel för olika (tenant, utbetalning, rad).
+  const keyFor = (lineId: string, kind: string) =>
+    kind === 'voucher'
+      ? `${enc(input.tenantId)}:${enc(payout.id)}:voucher`
+      : `${enc(input.tenantId)}:${enc(payout.id)}:${enc(lineId)}:${kind}`;
 
   // Betalningar före återbetalningar, så att en återbetalning mot en faktura som
   // betalas i samma utbetalning inte beror på radernas ordning.
-  for (const line of payout.lines) {
-    if (line.type !== 'payment') continue;
+  // Rader behandlas i id-ordning så att utfallet inte beror på i vilken ordning leverantören listar dem.
+  const ordered = [...payout.lines].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  for (const line of ordered) {
+    if (line.type !== 'payment' || settled.has(line.id)) continue;
     const outcome = resolveInvoice(line, byReference, invoices);
     if ('exception' in outcome) {
       exceptions.push(outcome.exception);
@@ -73,8 +82,8 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
     }
   }
 
-  for (const line of payout.lines) {
-    if (line.type !== 'refund') continue;
+  for (const line of ordered) {
+    if (line.type !== 'refund' || settled.has(line.id)) continue;
     const outcome = resolveInvoice(line, byReference, invoices);
     if ('exception' in outcome) {
       exceptions.push(outcome.exception);
@@ -97,7 +106,7 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
         ),
       );
     } else {
-      const { vat, net } = splitCreditVat(invoice, line.amount, remaining);
+      const { vat, net } = splitCreditVat(invoice, line.amount);
       invoice.creditedTotal += line.amount;
       invoice.creditedVatTotal += vat;
       commands.push({
@@ -129,9 +138,34 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
 
 interface WorkingInvoice extends Invoice {}
 
+const LINE_TYPES = new Set(['payment', 'refund', 'fee']);
+
+function validateInvoiceIds(invoices: readonly Invoice[]): ReconcileException | null {
+  const seen = new Set<string>();
+  for (const invoice of invoices) {
+    if (seen.has(invoice.id)) {
+      return { code: 'DUPLICATE_INVOICE_ID', message: `Faktura-id ${invoice.id} förekommer flera gånger i indata` };
+    }
+    seen.add(invoice.id);
+  }
+  return null;
+}
+
 function validatePayout(payout: Payout): ReconcileException | null {
+  if (!payout.id.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(payout.date)) {
+    return { code: 'INVALID_PAYOUT', message: 'Utbetalningen saknar id eller har ogiltigt datum (YYYY-MM-DD)' };
+  }
+  if (payout.lines.length === 0) {
+    return { code: 'EMPTY_PAYOUT', message: 'Utbetalningen har inga rader. Inget bokförs' };
+  }
   const seen = new Set<string>();
   for (const line of payout.lines) {
+    if (!LINE_TYPES.has(line.type) || !line.id.trim()) {
+      return { code: 'INVALID_PAYOUT', lineId: line.id, message: 'Rad med okänd typ eller tomt id' };
+    }
+    if ((line.type === 'payment' || line.type === 'refund') && !line.reference.trim()) {
+      return { code: 'INVALID_PAYOUT', lineId: line.id, message: 'Rad saknar referens' };
+    }
     if (seen.has(line.id)) {
       return { code: 'DUPLICATE_LINE_ID', lineId: line.id, message: `Rad-id ${line.id} förekommer flera gånger` };
     }
@@ -164,7 +198,28 @@ function validatePayout(payout: Payout): ReconcileException | null {
     return { code: 'INVALID_AMOUNT', message: error instanceof Error ? error.message : 'Ogiltigt belopp' };
   }
 
-  const expected = payout.lines.reduce((sum, line) => sum + netContribution(line), 0);
+  let expected: Minor;
+  try {
+    // Alla summor kontrolleras mot heltalsgränsen. Utan det kan en summa runda tyst nära 2^53.
+    expected = 0;
+    let payments = 0;
+    let refunds = 0;
+    let fees = 0;
+    for (const line of payout.lines) {
+      expected = checkedAdd(expected, netContribution(line));
+      if (line.type === 'payment') {
+        payments = checkedAdd(payments, line.amount);
+        fees = checkedAdd(fees, line.fee ? line.fee.net + line.fee.vat : 0);
+      } else if (line.type === 'refund') {
+        refunds = checkedAdd(refunds, line.amount);
+      } else {
+        fees = checkedAdd(fees, line.fee.net + line.fee.vat);
+      }
+    }
+    checkedAdd(checkedAdd(payments, refunds), fees);
+  } catch {
+    return { code: 'INVALID_AMOUNT', message: 'Beloppen är för stora för att summeras säkert' };
+  }
   if (expected !== payout.netAmount) {
     return {
       code: 'PAYOUT_SUM_MISMATCH',
@@ -231,6 +286,12 @@ function resolveInvoice(
     };
   }
   const invoice = working.get(candidates[0]!.id)!;
+  const problem = invoiceProblem(invoice);
+  if (problem) {
+    return {
+      exception: lineException('INVALID_INVOICE', line, `Faktura ${invoice.id} har ogiltiga uppgifter: ${problem}`),
+    };
+  }
   if (invoice.currency !== line.currency) {
     return {
       exception: lineException(
@@ -243,23 +304,32 @@ function resolveInvoice(
   return { invoice };
 }
 
-/**
- * Delar en kreditering på moms och netto. Sista krediteringen tar exakt kvarvarande
- * moms, så summan över alla delkrediteringar alltid blir fakturans moms.
- */
-function splitCreditVat(
-  invoice: WorkingInvoice,
-  amount: Minor,
-  remaining: Minor,
-): { vat: Minor; net: Minor } {
-  const remainingVat = invoice.vatTotal - invoice.creditedVatTotal;
-  if (amount === remaining) return { vat: remainingVat, net: amount - remainingVat };
+/** Beskriver vad som är fel med en faktura från adaptern, eller null om den hänger ihop. */
+function invoiceProblem(invoice: Invoice): string | null {
+  const numbers = [invoice.total, invoice.vatTotal, invoice.balance, invoice.creditedTotal, invoice.creditedVatTotal];
+  if (!numbers.every((n) => Number.isSafeInteger(n) && n >= 0)) return 'belopp måste vara icke-negativa heltal';
+  if (invoice.vatTotal > invoice.total) return 'momsen överstiger totalen';
+  if (invoice.balance > invoice.total) return 'obetalt belopp överstiger totalen';
+  if (invoice.creditedTotal > invoice.total) return 'krediterat belopp överstiger totalen';
+  if (invoice.creditedVatTotal > invoice.vatTotal) return 'krediterad moms överstiger fakturans moms';
+  if (invoice.creditedTotal - invoice.creditedVatTotal > invoice.total - invoice.vatTotal) {
+    return 'krediterat netto överstiger fakturans netto';
+  }
+  if (invoice.status === 'paid' && invoice.balance !== 0) return 'betald faktura med obetalt belopp';
+  return null;
+}
 
-  const netTotal = invoice.total - invoice.vatTotal;
-  if (invoice.total <= 0) return { vat: 0, net: amount };
-  const [prorated] = allocate(amount, [invoice.vatTotal, netTotal]);
-  const vat = Math.min(prorated ?? 0, remainingVat);
-  return { vat, net: amount - vat };
+/**
+ * Delar en kreditering på moms och netto, proportionellt mot det som återstår att kreditera
+ * (inte mot fakturans totaler). Därmed är moms och netto aldrig negativa, moms aldrig större
+ * än beloppet, och en sista kreditering tar exakt kvarvarande moms.
+ * Förutsätter en faktura som klarat `invoiceProblem` och 0 < amount <= remaining.
+ */
+function splitCreditVat(invoice: WorkingInvoice, amount: Minor): { vat: Minor; net: Minor } {
+  const remainingVat = invoice.vatTotal - invoice.creditedVatTotal;
+  const remainingNet = invoice.total - invoice.vatTotal - (invoice.creditedTotal - invoice.creditedVatTotal);
+  const [vat = 0, net = 0] = allocate(amount, [remainingVat, remainingNet]);
+  return { vat, net };
 }
 
 function buildVoucher(

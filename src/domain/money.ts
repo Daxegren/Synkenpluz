@@ -7,6 +7,13 @@ export function assertMinor(value: number, label = 'belopp'): void {
   }
 }
 
+/** Addition som kastar om resultatet inte längre är ett säkert heltal (ingen tyst avrundning). */
+export function checkedAdd(a: Minor, b: Minor): Minor {
+  const sum = a + b;
+  assertMinor(sum, 'summa');
+  return sum;
+}
+
 /**
  * Fördelar `total` proportionellt mot `weights` så att summan av delarna alltid
  * blir exakt `total` (största-återstoden-metoden). Används t.ex. för att dela upp

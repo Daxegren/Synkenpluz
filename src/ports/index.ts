@@ -122,7 +122,44 @@ export class LedgerError extends Error {
  * Utför ett bokföringskommando i kundens affärssystem. Implementationen ansvarar
  * för autentisering, rate limiting och översättning till leverantörens API.
  * Måste kasta LedgerError vid fel så att utföraren vet om det går att försöka igen.
+ *
+ * KRAV: Implementationen måste vara idempotent på `command.key`. Utföraren kan
+ * köra samma kommando två gånger (t.ex. om processen kraschar efter att
+ * affärssystemet svarat men innan resultatet sparats). Implementationen ska därför
+ * först kontrollera om kommandot med den nyckeln redan utförts i affärssystemet och
+ * i så fall returnera det befintliga externalId i stället för att skriva igen.
  */
 export interface LedgerGateway {
   execute(tenantId: string, command: LedgerCommand): Promise<{ externalId: string }>;
+}
+
+// ---------------------------------------------------------------- revision
+
+export interface AuditEntry {
+  tenantId: string;
+  /** Vem eller vad som utförde åtgärden, t.ex. 'system', 'api:<nyckel-id>'. Aldrig hemligheter. */
+  actor: string;
+  action: string;
+  /** Strukturerad kontext. Får inte innehålla personuppgifter eller betalningsdetaljer. */
+  details: Record<string, unknown>;
+}
+
+export interface AuditLog {
+  /** Append-only. Poster kan aldrig ändras eller tas bort. */
+  append(entry: AuditEntry, now: Date): Promise<void>;
+  list(tenantId: string, limit?: number): Promise<Array<AuditEntry & { at: Date }>>;
+}
+
+// ---------------------------------------------------------------- transaktion
+
+export interface Repositories {
+  commands: CommandRepository;
+  exceptions: ExceptionRepository;
+  payouts: PayoutRepository;
+  audit: AuditLog;
+}
+
+/** Kör `fn` atomiskt: allt som skrivs via `repos` sparas tillsammans eller inte alls. */
+export interface UnitOfWork {
+  run<T>(fn: (repos: Repositories) => Promise<T>): Promise<T>;
 }

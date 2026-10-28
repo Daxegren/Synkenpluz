@@ -123,7 +123,12 @@ export type ExceptionCode =
   | 'INVOICE_NOT_OPEN'
   | 'AMOUNT_MISMATCH'
   | 'REFUND_EXCEEDS_INVOICE'
-  | 'INTERNAL_IMBALANCE';
+  | 'INTERNAL_IMBALANCE'
+  | 'INVALID_PAYOUT'
+  | 'INVALID_INVOICE'
+  | 'DUPLICATE_INVOICE_ID'
+  | 'EMPTY_PAYOUT'
+  | 'COMMAND_CONFLICT';
 
 export interface ReconcileException {
   code: ExceptionCode;
@@ -151,4 +156,10 @@ export interface ReconcileInput {
   /** Kandidatfakturor som adaptern hämtat för utbetalningens referenser. */
   invoices: readonly Invoice[];
   accounts: AccountMapping;
+  /**
+   * Rader som redan har bokföringskommandon från en tidigare körning. De räknas med i
+   * summakontrollen och verifikatet men matchas och bokförs inte igen. Utan detta
+   * skulle en omkörning se redan betalda fakturor som fel.
+   */
+  settledLineIds?: ReadonlySet<string>;
 }

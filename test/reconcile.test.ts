@@ -116,6 +116,27 @@ describe('lyckad avstämning', () => {
   });
 });
 
+describe('omkörning', () => {
+  it('matchar inte om rader som redan bokförts, men tar med dem i verifikatet', () => {
+    const lines = [payment('L1', 'REF-A', 12500), payment('L2', 'REF-B', 12500)];
+    // L1 är redan bokförd, så fakturan är nu betald i affärssystemet.
+    const invoices = [invoice({ id: 'A', status: 'paid', balance: 0 }), invoice({ id: 'B' })];
+    const result = reconcile({ ...input(lines, invoices), settledLineIds: new Set(['L1']) });
+
+    expect(result.status).toBe('complete');
+    expect(result.exceptions).toEqual([]);
+    expect(result.commands.map((c) => c.kind)).toEqual(['register_invoice_payment', 'post_voucher']);
+    expect(voucherOf(result).lines.find((l) => l.account === 1930)?.debit).toBe(25000);
+  });
+
+  it('utan settledLineIds blir en redan bokförd rad en avvikelse', () => {
+    const result = reconcile(
+      input([payment('L1', 'REF-A', 12500)], [invoice({ id: 'A', status: 'paid', balance: 0 })]),
+    );
+    expect(result.exceptions[0]?.code).toBe('INVOICE_NOT_OPEN');
+  });
+});
+
 describe('avvisad utbetalning', () => {
   it('avvisar när radernas summa inte stämmer med utbetalt belopp', () => {
     const result = reconcile(
