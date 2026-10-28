@@ -86,6 +86,14 @@ Via API:t syns bara en avskalad bild (status, antal försök, `hasError`) i `GET
 
 **A. Orsaken är åtgärdad, kommandot ska köras igen** (till exempel fakturan skapades, perioden öppnades, kontot lades till):
 
+Enklast via API:t, som också skriver en revisionspost (`command.requeued`):
+
+```sh
+curl -s -X POST -H "x-api-key: $API_KEY" http://localhost:3000/v1/commands/<kommando-id>/retry
+```
+
+Motsvarande SQL, om API:t inte är tillgängligt (skriv då själv en revisionspost, avsnitt 5):
+
 ```sql
 begin;
 update ledger_command
@@ -274,7 +282,7 @@ console.log(outcome.result.status, outcome.result.commands.length, outcome.resul
 **Särskilda fall:**
 
 - `rejected` utbetalningar upptas inte automatiskt av `syncTenant`. Kör om dem manuellt när leverantörsdata är rättad.
-- **Kund som bytt från dry_run till live** (`TenantRepository.setMode(tenantId, 'live')`): `syncTenant` flyttar fram cursorn (`sync_state`) även i dry_run. Utbetalningar som bara körts i dry_run har ingen `payout`-rad och hämtas inte igen. Kör dem manuellt live (lista dem via leverantören och kör steg 1 till 5) innan kunden anses vara live. **BESLUT** att byta läge ska fattas av bokföringsansvarig efter att förslagen granskats.
+- **Kund som bytt från dry_run till live** (`TenantRepository.setMode(tenantId, 'live')`): cursorn flyttas inte fram i dry_run, så nästa körcykel hämtar och bokför alla utbetalningar som hittills bara körts i dry_run. Se till att förslagen är granskade *före* bytet, eftersom allt bokförs på riktigt direkt. **BESLUT** att byta läge ska fattas av bokföringsansvarig efter att förslagen granskats.
 
 ## 8. Misstänkt dubbelbokning
 
@@ -345,6 +353,5 @@ Rutin:
 - Ingen funktion för att återuppta dött kommando. Allt sker via SQL.
 - API-stängning av avvikelser skriver ingen revisionspost.
 - `rejected` utbetalningar körs inte om automatiskt.
-- Cursor flyttas fram även i dry_run.
 - Ingen process eller schemaläggare som anropar `runCycle` levereras.
 - Det finns inga verktyg för att skapa kunder, nycklar eller anslutningar. Det görs med repositorierna (`createTenantRepository`, `createApiKeyRepository`, `createConnectionRepository`) i egen kod. Återkalla en nyckel: `revoke(tenantId, id, now)`. Stäng av en kund: `setStatus(id, 'suspended')` (nycklar och synk slutar då fungera).

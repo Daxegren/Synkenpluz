@@ -111,7 +111,7 @@ Beroenden i `package.json`: `fastify`, `zod`, `@electric-sql/pglite`. CI kör `n
 7. **Dödläge utan verktyg.** Dött kommando kräver SQL-ingrepp av människa. Det ger risk för mänskliga fel och att ingreppet inte loggas.
 8. **Ingen övervakning eller larm.** Döda kommandon eller fastnade köer upptäcks bara om någon tittar.
 9. **Luckor i avstämningen.** Ingen daglig kontrollsumma mot bokfört. Ändringar hos leverantören efter att en rad köats upptäcks bara för belopp/typ av rad och vid verifikat (COMMAND_CONFLICT täcker inte ändrad referens).
-10. **dry_run-cursor.** Utbetalningar som bara körts i dry_run bearbetas inte automatiskt när kunden går live (kan ge uteblivna bokningar).
+10. **Byte till live bokför allt på en gång.** Cursorn står kvar i dry_run, så alla hittills ej bokförda utbetalningar köas när kunden går live. Förslagen måste vara granskade före bytet.
 11. **Gallring och lagringstider ej beslutade eller implementerade.**
 12. **Testmiljö skiljer sig från drift.** Tester körs mot PGlite. Beteende som advisory locks och `skip locked` under verklig samtidighet är inte testat i drift, vilket Postgres-jobbet i CI delvis ska täcka.
 13. **Ingen skanning av beroenden eller hemligheter i CI.**

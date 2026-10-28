@@ -94,7 +94,7 @@ curl -s -H "x-api-key: $API_KEY" http://localhost:3000/v1/exceptions/3f1c9c1e-7a
 
 ### `POST /v1/exceptions/:id/resolve`
 
-Stänger en öppen avvikelse. **Ändrar bara avvikelsen**: inget kommando köas eller ändras och bokföringen påverkas inte. Ingen revisionspost skrivs av API:t.
+Stänger en öppen avvikelse. **Ändrar bara avvikelsen**: inget kommando köas eller ändras och bokföringen påverkas inte. API:t skriver en revisionspost (`exception.resolved`) med avvikelsens id, kod och utfall. Den fria anteckningen loggas inte, eftersom den kan innehålla personuppgifter.
 
 Body (JSON, strikt):
 
@@ -134,7 +134,7 @@ Svar `200`:
 
 ### `GET /v1/payouts/:id`
 
-Hämtar en utbetalning med dess kommandon i utförandeordning. `404` om utbetalningen inte finns.
+Hämtar en utbetalning med dess kommandon i utförandeordning. Kommandots `id` används för att köa om det med `POST /v1/commands/:id/retry`. `404` om utbetalningen inte finns.
 
 ```sh
 curl -s -H "x-api-key: $API_KEY" http://localhost:3000/v1/payouts/P1
@@ -163,6 +163,16 @@ Svar `200`:
 Kommandon visas medvetet avskalade: inget tenant-id, ingen idempotensnyckel, inget innehåll (konton, belopp, fakturor), inget externt id och inget felmeddelande, bara `hasError`. För att se orsaken till ett fel används SQL, se [RUNBOOK.md](RUNBOOK.md).
 
 `kind` är `register_invoice_payment`, `credit_invoice` eller `post_voucher`. `status` är `pending`, `in_progress`, `succeeded`, `failed` eller `dead`.
+
+### `POST /v1/commands/:id/retry`
+
+Mänsklig åtgärd: sätter ett **dött** kommando tillbaka i kön med nollställda försök, så att det körs igen vid nästa körcykel. Använd bara efter att orsaken åtgärdats och efter att ha kontrollerat i affärssystemet att kommandot inte redan utfördes (se [RUNBOOK.md](RUNBOOK.md), avsnitt 2).
+
+```sh
+curl -s -X POST -H "x-api-key: $API_KEY" http://localhost:3000/v1/commands/$COMMAND_ID/retry
+```
+
+Svar `200`: `{"id": "...", "status": "pending"}`. `409` om kommandot inte finns, tillhör en annan kund eller inte är dött (ett kommando som är `pending`, `failed`, `in_progress` eller `succeeded` kan inte köas om). Åtgärden revisionsloggas som `command.requeued`.
 
 ## Exempel: arbetsflöde för avvikelser
 

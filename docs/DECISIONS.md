@@ -52,7 +52,7 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 
 **Alternativ:** köa kommandon som "föreslagna" och godkänna dem en och en (mer tillstånd och risk för halvgodkända utbetalningar). Separat sandbox-miljö (löser inte kundens egen granskning).
 
-**Konsekvens:** förslag sparas inte och syns inte i API:t. "Godkännande" är en omkörning i live-läge. Cursorn flyttas fram även i dry_run, så byte till live kräver manuell omkörning av tidigare utbetalningar (se RUNBOOK). Se ARCHITECTURE avsnitt 8.
+**Konsekvens:** förslag sparas inte och syns inte i API:t. "Godkännande" är en omkörning i live-läge. Cursorn flyttas inte fram i dry_run, så byte till live hämtar och bokför tidigare utbetalningar automatiskt. Se ARCHITECTURE avsnitt 8.
 
 ## ADR-005: `settledLineIds`
 

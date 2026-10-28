@@ -212,7 +212,7 @@ Kö-nivåns unikhet gäller globalt på `key`. Nyckeln innehåller tenant-id, s�
 - Det finns **ingen godkännandefunktion**. "Godkännande" betyder i koden att samma utbetalning körs igen med `mode: 'live'`, och att kundens `TenantConfig.mode` sätts om av den som äger konfigurationen. Ingen tabell eller endpoint hanterar det.
 - Eftersom dry_run bara skriver en revisionspost syns förslagen inte i API:t. De syns bara i returvärdet från `processPayout`/`syncTenant`.
 - Nya kunder skapas alltid i `dry_run` (`tenant.mode`, standardvärde i schemat). Läget ändras med `TenantRepository.setMode`. Det finns ingen endpoint eller kommandorad för det.
-- **Känd lucka:** `syncTenant` flyttar fram cursorn (`sync_state`) även i dry_run. När en kund byter till live hämtas redan dry-run-bearbetade utbetalningar inte automatiskt igen. De måste köras om manuellt (via `getPayout`/`processPayout` live). Se RUNBOOK.
+- `syncTenant` flyttar **inte** fram cursorn (`sync_state`) i dry_run. När kunden byter till live hämtas därför samma utbetalningar på nytt och bokförs på riktigt. Granska förslagen innan läget byts.
 
 dry_run är inte en sandbox mot affärssystemet: `LedgerGateway` anropas aldrig i dry_run eftersom inget köas.
 
@@ -238,6 +238,6 @@ SPEC:ens `payment_event` och `match` finns inte. Tabellerna `ledger_command`, `r
 | Krypterade token (avsnitt 7) | Kryptering finns (`src/security/crypto.ts`) men ingen KMS-provider och ingen adapter använder den |
 | Rate limiting per token (avsnitt 6) | Inte implementerat. Backoff finns, men ingen kö- eller tokenbegränsning |
 | Daglig kontrollsumma och larm (avsnitt 6) | Kontrollsumma inte implementerad. `runCycle` ger enkla larm men ingen leverans |
-| Dry-run med godkännande (avsnitt 6) | Läget finns. Själva godkännandeflödet och cursor-hanteringen vid byte till live saknas |
+| Dry-run med godkännande (avsnitt 6) | Läget finns och cursorn står kvar i dry_run, så byte till live bokför tidigare utbetalningar. Ett explicit godkännandeflöde (förslag som sparas och visas i API:t) saknas |
 | "Ingen kod finns än" (SPEC, status) | Föråldrad |
 | Delvis avstämd: "kvarvarande delar i kö" (5.2) | Delvis: säkra rader köas, verifikat väntar tills allt är löst. Ingen funktion för att markera en rad som manuellt hanterad |
