@@ -87,4 +87,18 @@ Tilläggen ligger utöver grundpaketet och tillkommer på priset. Alla kostar 25
 
 ## Status
 
-Repot innehåller för närvarande ingen kod. Den här README:n beskriver plattformens funktioner utifrån informationen på webbplatsen.
+Tidigt skede. Funktionsbeskrivningen ovan bygger på informationen på webbplatsen. Det som finns i repot:
+
+- `docs/SPEC.md`: teknisk specifikation för första skivan (Mondido till Fortnox).
+- `src/engine/reconcile.ts`: avstämningsmotorn, en ren funktion utan nätverksanrop.
+- `src/domain/`: normaliserade typer och beloppshantering (heltal i minsta enhet).
+- Adaptrar mot Mondido och Fortnox saknas ännu.
+
+## Utveckling
+
+Kräver Node.js 22 eller senare.
+
+```sh
+npm install
+npm run check   # typkontroll och tester
+```
