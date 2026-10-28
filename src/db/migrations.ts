@@ -75,6 +75,41 @@ export const migrations: readonly Migration[] = [
         for each row execute function audit_log_immutable();
     `,
   },
+  {
+    id: '002_tenants_connections',
+    sql: `
+      create table tenant (
+        id         text primary key,
+        name       text        not null,
+        status     text        not null default 'active' check (status in ('active','suspended')),
+        mode       text        not null default 'dry_run' check (mode in ('dry_run','live')),
+        created_at timestamptz not null
+      );
+
+      create table api_key (
+        id           text primary key,
+        tenant_id    text        not null references tenant (id),
+        hash         text        not null,
+        created_at   timestamptz not null,
+        revoked_at   timestamptz,
+        expires_at   timestamptz,
+        last_used_at timestamptz
+      );
+      create index api_key_tenant on api_key (tenant_id);
+
+      create table connection (
+        id                    text primary key,
+        tenant_id             text        not null references tenant (id),
+        provider              text        not null,
+        encrypted_credentials text        not null,
+        key_id                text        not null,
+        status                text        not null default 'active' check (status in ('active','disabled','needs_reauth')),
+        created_at            timestamptz not null,
+        updated_at            timestamptz not null,
+        unique (tenant_id, provider)
+      );
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {
