@@ -37,15 +37,53 @@ Lager och pris kan synkas automatiskt från både webbshop och affärssystem, s�
 
 ## Målgrupp
 
-E-handlare som driver webbshop och affärssystem parallellt och vill minska tiden som läggs på dubbelregistrering och manuell avstämning.
+E-handlare som driver webbshop (Shopify, WooCommerce, PrestaShop eller Magento 2) och affärssystem (Fortnox, Spiris, HiCore eller Specter) parallellt och vill minska tiden som läggs på dubbelregistrering och manuell avstämning. Även redovisningskonsulter nämns som mottagare av tidsbesparingen.
 
-## Kopplingar
+## Kopplingar och priser
 
-| Webbshop | Affärssystem | Status |
+Priser i kronor per månad. Samtliga paket kan tecknas utan bindningstid eller med bindningstid (lägre pris), utom AutoPrint som endast listas utan bindningstid.
+
+### Grundpaket
+
+| Webbshop | Affärssystem | Utan bindningstid | Med bindningstid |
+| --- | --- | --- | --- |
+| Shopify | Fortnox | 649 | 499 |
+| Shopify | Spiris | 649 | 499 |
+| Shopify | HiCore | 649 | 499 |
+| PrestaShop | Fortnox | 749 | 599 |
+| PrestaShop | Spiris | 749 | 599 |
+| WooCommerce | Fortnox | 749 | 599 |
+| WooCommerce | Spiris | 749 | 599 |
+| WooCommerce | HiCore | 749 | 599 |
+| WooCommerce | Specter | 749 | 599 |
+| Magento 2 | Fortnox | 1 399 | 1 100 |
+| Magento 2 | Spiris | 1 399 | 1 100 |
+
+Grundpaketen för bokföringssystemen (Fortnox, Spiris, Specter) omfattar bokföring, ordrar, kundkort och kunddetaljer. Grundpaketen för HiCore omfattar ordrar, produkter och lager.
+
+### Synka+ AutoPrint
+
+Automatiserar fraktprocessen genom att fraktetiketter kan skrivas ut direkt från webbshopen eller andra system. 199 kr/mån utan bindningstid.
+
+### Tilläggstjänster
+
+Tilläggen ligger utöver grundpaketet och tillkommer på priset. Alla kostar 250 kr/mån utan bindningstid och 150 kr/mån med bindningstid.
+
+**Betalleverantörer** (automatisk avstämning av utbetalningar, inklusive transaktionsavgifter och övriga avgifter):
+
+| Betalleverantör | Fortnox | Spiris |
 | --- | --- | --- |
-| Magento 2 | Fortnox | Levererad till kund |
+| Klarna | ✓ | ✓ |
+| Mollie | ✓ | ✓ |
+| Nets Easy | ✓ | ✓ |
+| PayPal | ✓ | ✓ |
+| Ledyer | ✓ | |
+| Dintero | ✓ | |
+| Qliro | ✓ | |
 
-Fler kopplingar, och vilka betalleverantörer som stöds, ska dokumenteras här.
+**CDON** (Fortnox och Spiris): för över CDON-ordrar till webbshopen, skapar dem i affärssystemet med bokföringsunderlag och stämmer av mot CDON Settlement.
+
+> Listan över tillägg är hämtad från webbplatsen och kan vara ofullständig. Kontrollera mot <https://synkaplus.se> innan den används som underlag.
 
 ## Status
 
