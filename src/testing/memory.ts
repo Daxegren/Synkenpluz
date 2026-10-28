@@ -114,6 +114,10 @@ export function createMemoryCommandRepository(): CommandRepository {
       return released;
     },
 
+    async countDead() {
+      return [...rows.values()].filter((r) => r.stored.status === 'dead').length;
+    },
+
     async requeue(tenantId, id, now) {
       const r = rows.get(id);
       if (!r || r.stored.tenantId !== tenantId || r.stored.status !== 'dead') return false;

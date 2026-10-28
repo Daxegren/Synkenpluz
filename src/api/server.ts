@@ -9,6 +9,7 @@ import type {
   StoredCommand,
   StoredException,
   PayoutRecord,
+  UnitOfWork,
 } from '../ports/index.js';
 
 export interface ApiDeps {
@@ -20,6 +21,11 @@ export interface ApiDeps {
   clock: Clock;
   /** Revisionslogg för mänskliga åtgärder via API:t. Bör alltid anges i drift. */
   audit?: AuditLog;
+  /**
+   * Gör en mänsklig åtgärd och dess revisionspost atomiskt: misslyckas loggningen rullas åtgärden
+   * tillbaka. Utan den utförs de var för sig (bara för tester).
+   */
+  uow?: UnitOfWork;
 }
 
 declare module 'fastify' {
@@ -101,6 +107,14 @@ function presentCommand(c: StoredCommand) {
   };
 }
 
+type Repos = { exceptions: ExceptionRepository; commands: CommandRepository; audit: AuditLog | undefined };
+
+/** Kör `fn` i en transaktion om en arbetsenhet finns, annars direkt mot repositorierna. */
+function atomically<T>(deps: ApiDeps, fn: (repos: Repos) => Promise<T>): Promise<T> {
+  if (deps.uow) return deps.uow.run((r) => fn({ exceptions: r.exceptions, commands: r.commands, audit: r.audit }));
+  return fn({ exceptions: deps.exceptions, commands: deps.commands, audit: deps.audit });
+}
+
 // ---------------------------------------------------------------- server
 
 export function buildServer(deps: ApiDeps): FastifyInstance {
@@ -159,15 +173,22 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       const { id } = parse(idParams, request.params, 'path');
       const body = parse(resolveBody, request.body, 'body');
       const tenantId = request.tenantId;
-      const existing = await deps.exceptions.get(tenantId, id);
-      if (!existing) throw new HttpError(404, 'not_found', 'Avvikelsen finns inte');
-      const ok = await deps.exceptions.resolve(tenantId, id, body, deps.clock.now());
-      if (!ok) throw new HttpError(409, 'conflict', 'Avvikelsen är inte öppen');
-      // Anteckningen är fri text från en människa och loggas därför inte. Bara id och utfall.
-      await deps.audit?.append(
-        { tenantId, actor: 'api', action: 'exception.resolved', details: { exceptionId: id, status: body.status, code: existing.code } },
-        deps.clock.now(),
-      );
+      const now = deps.clock.now();
+
+      const outcome = await atomically(deps, async (r) => {
+        const existing = await r.exceptions.get(tenantId, id);
+        if (!existing) return 'not_found' as const;
+        if (!(await r.exceptions.resolve(tenantId, id, body, now))) return 'conflict' as const;
+        // Anteckningen är fri text från en människa och loggas därför inte. Bara id och utfall.
+        await r.audit?.append(
+          { tenantId, actor: 'api', action: 'exception.resolved', details: { exceptionId: id, status: body.status, code: existing.code } },
+          now,
+        );
+        return 'ok' as const;
+      });
+      if (outcome === 'not_found') throw new HttpError(404, 'not_found', 'Avvikelsen finns inte');
+      if (outcome === 'conflict') throw new HttpError(409, 'conflict', 'Avvikelsen är inte öppen');
+
       const updated = await deps.exceptions.get(tenantId, id);
       if (!updated) throw new HttpError(404, 'not_found', 'Avvikelsen finns inte');
       return presentException(updated);
@@ -176,12 +197,13 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
     v1.post('/commands/:id/retry', async (request) => {
       const { id } = parse(idParams, request.params, 'path');
       const tenantId = request.tenantId;
-      const ok = await deps.commands.requeue(tenantId, id, deps.clock.now());
+      const now = deps.clock.now();
+      const ok = await atomically(deps, async (r) => {
+        if (!(await r.commands.requeue(tenantId, id, now))) return false;
+        await r.audit?.append({ tenantId, actor: 'api', action: 'command.requeued', details: { commandId: id } }, now);
+        return true;
+      });
       if (!ok) throw new HttpError(409, 'conflict', 'Kommandot finns inte eller är inte permanent misslyckat');
-      await deps.audit?.append(
-        { tenantId, actor: 'api', action: 'command.requeued', details: { commandId: id } },
-        deps.clock.now(),
-      );
       return { id, status: 'pending' };
     });
 

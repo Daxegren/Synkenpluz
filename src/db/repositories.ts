@@ -83,6 +83,11 @@ export function createCommandRepository(db: Db): CommandRepository {
            select c.id from ledger_command c
             where c.status in ('pending', 'failed')
               and c.next_attempt_at <= $1
+              -- En avstängd kund, eller en som satts tillbaka i dry_run, ska inte få något utfört.
+              -- (Saknas kundraden helt släpps kommandot igenom; i drift finns den alltid.)
+              and not exists (
+                select 1 from tenant t
+                 where t.id = c.tenant_id and (t.status <> 'active' or t.mode <> 'live'))
               and not exists (
                 select 1 from ledger_command earlier
                  where earlier.tenant_id = c.tenant_id
@@ -133,6 +138,11 @@ export function createCommandRepository(db: Db): CommandRepository {
         [olderThan, now],
       );
       return rows.length;
+    },
+
+    async countDead() {
+      const [row] = await db.query<{ n: number }>(`select count(*)::int as n from ledger_command where status = 'dead'`);
+      return row?.n ?? 0;
     },
 
     async requeue(tenantId, id, now) {

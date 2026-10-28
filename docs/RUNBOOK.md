@@ -31,7 +31,7 @@ select c.tenant_id, c.payout_id, c.seq, c.status, c.command->>'kind' as kind
                   and d.seq < c.seq and d.status = 'dead')
  order by c.tenant_id, c.payout_id, c.seq;
 
--- Fastnade kommandon (in_progress längre än 10 minuter)
+-- Fastnade kommandon (in_progress längre än 30 minuter)
 select id, tenant_id, payout_id, seq, locked_at, attempts
   from ledger_command
  where status = 'in_progress' and locked_at < now() - interval '10 minutes';
@@ -200,11 +200,11 @@ values ('<tenant>', now(), 'human:<namn>', 'command.requeued_manually',
 
 Använd tydliga åtgärdsnamn, till exempel `command.requeued_manually`, `command.marked_succeeded_manually`, `command.deleted_manually`, `stale.released_manually`.
 
-Avvikelser som stängs via API:t (`POST /v1/exceptions/:id/resolve`) får **ingen** automatisk revisionspost i nuvarande kod; bara avvikelsens status, anteckning och tid ändras. Skriv en egen post om du behöver spårbarhet.
+Avvikelser som stängs via API:t (`POST /v1/exceptions/:id/resolve`) och kommandon som köas om (`POST /v1/commands/:id/retry`) får en automatisk revisionspost, skriven i samma transaktion som åtgärden. Skriv en egen post bara för ingrepp du gör direkt i SQL.
 
 ## 6. Återställa fastnade kommandon (`recoverStale`)
 
-**När:** kommandon har legat som `in_progress` längre än tröskeln (standard 10 minuter). Typiska orsaker: processen dog mitt i ett anrop, eller `markSucceeded` kunde inte skrivas (då räknas kommandot som `unconfirmed` i `RunSummary`).
+**När:** kommandon har legat som `in_progress` längre än tröskeln (standard 30 minuter). Typiska orsaker: processen dog mitt i ett anrop, eller `markSucceeded` kunde inte skrivas (då räknas kommandot som `unconfirmed` i `RunSummary`).
 
 **Risk:** kommandot kan redan ha gått igenom i affärssystemet. Återställning gör att det körs igen. Det är säkert **enbart** om gatewayen är idempotent på `key` (krav i `src/ports/index.ts`). `FakeLedgerGateway` är det. En kommande Fortnox-adapter måste bevisas vara det innan produktion.
 
@@ -219,10 +219,10 @@ Från kod (rekommenderat, så att det är samma logik som i drift):
 
 ```ts
 import { recoverStale } from './src/executor/executor.js';
-const released = await recoverStale({ commands, clock }, 10 * 60_000); // staleAfterMs
+const released = await recoverStale({ commands, clock }, 30 * 60_000); // staleAfterMs
 ```
 
-Funktionen sätter alla `in_progress` med `locked_at` äldre än tröskeln till `failed`, med `next_attempt_at = nu`. `attempts` behålls. Utföraren plockar upp dem vid nästa omgång. `runCycle` anropar `recoverStale` i början av varje cykel (tröskel `staleAfterMs`, standard 10 minuter), så om cykeln körs på schema sker återställningen av sig själv. Manuell körning behövs om cykeln inte körs eller du vill släppa kommandon tidigare. Sätt tröskeln högre än längsta tillåtna tid för ett gatewayanrop, annars släpps pågående kommandon.
+Funktionen sätter alla `in_progress` med `locked_at` äldre än tröskeln till `failed`, med `next_attempt_at = nu`. `attempts` behålls. Utföraren plockar upp dem vid nästa omgång. `runCycle` anropar `recoverStale` i början av varje cykel (tröskel `staleAfterMs`, standard 30 minuter), så om cykeln körs på schema sker återställningen av sig själv. Manuell körning behövs om cykeln inte körs eller du vill släppa kommandon tidigare. Sätt tröskeln högre än längsta tillåtna tid för ett gatewayanrop, annars släpps pågående kommandon.
 
 Motsvarande SQL, om kod inte är tillgänglig:
 
@@ -250,7 +250,7 @@ Omkörning är avsedd att vara säker: samma indata ger samma nycklar, köade ra
 
 **Steg:**
 
-1. **Torrkörning.** Kör `processPayout` med `mode: 'dry_run'`. Det skriver bara en revisionspost (`payout.dry_run`) och returnerar förslaget. Läs `result.status`, `result.commands` och `result.exceptions`. Förvänta dig inga nya kommandon för rader som redan köats.
+1. **Torrkörning.** Kör `processPayout` med `mode: 'dry_run'`. Det skriver ingenting och returnerar bara förslaget. Läs `result.status`, `result.commands` och `result.exceptions`. Förvänta dig inga nya kommandon för rader som redan köats.
 2. **Granska.** Är förslaget väntat (inga nya konflikter, rimliga nya kommandon)? Om inte, stanna.
 3. **Live.** Kör `processPayout` med `mode: 'live'` och `actor: 'human:<namn>'`. Resultatet anger `enqueued` (nya kommandon) och `autoResolved` (avvikelser som löstes).
 4. **Utför.** `drain`, eller invänta utföraren. Kontrollera att kommandona blir `succeeded`.
@@ -281,7 +281,6 @@ console.log(outcome.result.status, outcome.result.commands.length, outcome.resul
 
 **Särskilda fall:**
 
-- `rejected` utbetalningar upptas inte automatiskt av `syncTenant`. Kör om dem manuellt när leverantörsdata är rättad.
 - **Kund som bytt från dry_run till live** (`TenantRepository.setMode(tenantId, 'live')`): cursorn flyttas inte fram i dry_run, så nästa körcykel hämtar och bokför alla utbetalningar som hittills bara körts i dry_run. Se till att förslagen är granskade *före* bytet, eftersom allt bokförs på riktigt direkt. **BESLUT** att byta läge ska fattas av bokföringsansvarig efter att förslagen granskats.
 
 ## 8. Misstänkt dubbelbokning
@@ -351,7 +350,5 @@ Rutin:
 - Larmen från `runCycle` skickas ingenstans. Allt i avsnitt 1 är manuellt tills driftsättningen kopplat in dem.
 - Ingen funktion för att markera en rad som manuellt hanterad. Därmed kan verifikat och `complete`-status inte nås för en utbetalning där en rad löstes utanför systemet.
 - Ingen funktion för att återuppta dött kommando. Allt sker via SQL.
-- API-stängning av avvikelser skriver ingen revisionspost.
-- `rejected` utbetalningar körs inte om automatiskt.
 - Ingen process eller schemaläggare som anropar `runCycle` levereras.
 - Det finns inga verktyg för att skapa kunder, nycklar eller anslutningar. Det görs med repositorierna (`createTenantRepository`, `createApiKeyRepository`, `createConnectionRepository`) i egen kod. Återkalla en nyckel: `revoke(tenantId, id, now)`. Stäng av en kund: `setStatus(id, 'suspended')` (nycklar och synk slutar då fungera).

@@ -6,7 +6,7 @@ import { createApiKeyRepository, createTenantRepository } from '../db/tenants.js
 import type { LedgerGateway, Clock } from '../ports/index.js';
 import type { InvoiceReader, PayoutSource } from '../ports/sources.js';
 import { createAuthenticator } from '../security/apiKeys.js';
-import { runCycle, silentLogger, type CycleReport, type Logger } from './cycle.js';
+import { runCycle, silentLogger, type CycleDeps, type CycleReport, type Logger } from './cycle.js';
 
 export interface AppConfig {
   db: Db;
@@ -40,10 +40,31 @@ export function createApp(config: AppConfig) {
     authenticate: createAuthenticator({ store: apiKeys, pepper: config.apiKeyPepper, clock }),
     clock,
     audit: repos.audit,
+    uow,
   });
 
-  const cycleDeps = {
-    executor: { commands: repos.commands, gateway: config.adapters.gateway, clock },
+  const cycleDeps: CycleDeps = {
+    executor: {
+      commands: repos.commands,
+      gateway: config.adapters.gateway,
+      clock,
+      // Ett dött kommando gör utbetalningen ofullständig, även om den tidigare var klar.
+      onDead: async (command, reason) => {
+        const now = clock.now();
+        await uow.run(async (r) => {
+          await r.payouts.record({ tenantId: command.tenantId, payoutId: command.payoutId, status: 'partial', processedAt: now });
+          await r.audit.append(
+            {
+              tenantId: command.tenantId,
+              actor: 'system',
+              action: 'command.dead',
+              details: { commandId: command.id, payoutId: command.payoutId, kind: command.command.kind, reason: reason.slice(0, 200) },
+            },
+            now,
+          );
+        });
+      },
+    },
     sync: {
       uow,
       clock,

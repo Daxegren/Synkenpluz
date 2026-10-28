@@ -70,7 +70,7 @@ describe('runCycle', () => {
     // Första cykeln köar. Sedan "kraschar" en arbetare efter att ha låst första kommandot.
     await runCycle({ ...deps, executor: { ...deps.executor, gateway: { execute: async () => { throw new Error('x'); } } } });
     await repos.commands.claimDue(new Date(clock.now().getTime() + 3_600_000), 10);
-    clock.advance(3_600_000 + 11 * 60_000);
+    clock.advance(3_600_000 + 31 * 60_000);
 
     const report = await runCycle(deps);
     expect(report.recovered).toBe(1);

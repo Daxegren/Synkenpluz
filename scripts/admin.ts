@@ -4,6 +4,7 @@
  * Hemligheter (API-nycklar, uppgifter) skrivs bara ut/läses in en gång och loggas aldrig.
  */
 import pg from 'pg';
+import { z } from 'zod';
 import { parseEnv } from '../src/app/config.js';
 import { createConnectionRepository } from '../src/db/connections.js';
 import { createPgDb } from '../src/db/pg.js';
@@ -12,6 +13,8 @@ import { createAuditLog } from '../src/db/repositories.js';
 import { setTenantAccounts } from '../src/db/syncState.js';
 import { createApiKeyRepository, createTenantRepository } from '../src/db/tenants.js';
 import { StaticKeyProvider } from '../src/security/crypto.js';
+
+const credentialsSchema = z.record(z.string(), z.string());
 
 const USAGE = `Kommandon:
   create-tenant <id> <namn>
@@ -88,7 +91,8 @@ async function main() {
       }
       case 'issue-key': {
         const tenantId = need(args[0], 'tenant');
-        const days = args[1] ? Number(args[1]) : null;
+        const days = args[1] === undefined ? null : Number(args[1]);
+        if (days !== null && (!Number.isInteger(days) || days <= 0)) throw new Error('Antal dagar måste vara ett positivt heltal');
         const expiresAt = days ? new Date(now.getTime() + days * 86_400_000) : null;
         const key = await createApiKeyRepository(db).issue(tenantId, { expiresAt }, now, env.apiKeyPepper);
         await log(tenantId, 'api_key.issued', { keyId: key.id });
@@ -104,10 +108,18 @@ async function main() {
       case 'set-connection': {
         const tenantId = need(args[0], 'tenant');
         const provider = need(args[1], 'provider');
-        const credentials = JSON.parse(await readStdin()) as Record<string, string>;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(await readStdin());
+        } catch {
+          // Själva JSON-felet innehåller ett utdrag av indata, och därmed delar av hemligheten. Skriv inte ut det.
+          throw new Error('Indata är inte giltig JSON');
+        }
+        const credentials = credentialsSchema.safeParse(parsed);
+        if (!credentials.success) throw new Error('Uppgifterna måste vara ett JSON-objekt med textvärden');
         const keys = Object.fromEntries(env.masterKeys.map((k) => [k.id, k.key]));
         const repo = createConnectionRepository(db, new StaticKeyProvider(keys, env.masterKeys[0]!.id));
-        const info = await repo.upsert(tenantId, provider, credentials, now);
+        const info = await repo.upsert(tenantId, provider, credentials.data, now);
         await log(tenantId, 'connection.set', { provider, connectionId: info.id });
         console.log(`Koppling ${provider} sparad (krypterad med nyckel ${info.keyId})`);
         break;

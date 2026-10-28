@@ -102,7 +102,7 @@ Steg för steg:
 6. **Utför.** Utföraren hämtar förfallna kommandon (`claimDue`), anropar `LedgerGateway.execute` och sparar resultatet (`markSucceeded` eller `markFailed`).
 7. **Följ upp.** Människa läser avvikelser och utbetalningar via API:t, och hanterar döda kommandon via SQL (se RUNBOOK).
 
-`runCycle` (`src/app/cycle.ts`) knyter ihop stegen: släpp fastnade kommandon (`recoverStale`), `syncTenant` för varje kund i `listTenants()`, därefter `drain`. Ett fel för en kund stoppar inte de andra. Den returnerar en `CycleReport` med `alerts`: `warning` för avvisade/misslyckade utbetalningar och misslyckad synk, `critical` när kommandon blivit `dead`, `warning` för `unconfirmed`. `src/main.ts` kör `runCycle` på schema och loggar larmen som varningar, men **inget skickar dem vidare** (e-post, pager). Kön tål flera samtidiga arbetare, så flera processer kan köras. Kunder som synkas ska vara aktiva och ha kontoplan (`listSyncableTenants`). En kund utan kontoplan, eller avstängd, får ingen konfiguration (`createTenantConfigProvider` returnerar null) och synkas därför inte.
+`runCycle` (`src/app/cycle.ts`) knyter ihop stegen: släpp fastnade kommandon (`recoverStale`), `syncTenant` för varje kund i `listTenants()`, därefter `drain`. Ett fel för en kund stoppar inte de andra. Den returnerar en `CycleReport` med `alerts`: `warning` för avvisade/misslyckade utbetalningar och misslyckad synk, `critical` när kommandon blivit `dead`, `warning` för `unconfirmed`. `src/main.ts` kör `runCycle` på schema och loggar larmen som varningar, men **inget skickar dem vidare** (e-post, pager). Kön tål flera samtidiga arbetare, så flera processer kan köras. Kunder som synkas ska vara aktiva och ha kontoplan (`listSyncableTenants`). Köns `claimDue` utför dessutom aldrig kommandon för en kund som är avstängd eller satts tillbaka i dry_run, så en avstängning stoppar även redan köad bokföring. En kund utan kontoplan, eller avstängd, får ingen konfiguration (`createTenantConfigProvider` returnerar null) och synkas därför inte.
 
 ## 4. Tillståndsmaskiner
 
@@ -118,7 +118,7 @@ stateDiagram-v2
     in_progress --> dead: markFailed utan retryAt
     in_progress --> failed: releaseStale (recoverStale)
     succeeded --> [*]
-    dead --> [*]: ingen kodväg ut, endast manuell SQL
+    dead --> pending: requeue (POST /v1/commands/:id/retry)
 ```
 
 Regler (från `executor.ts` och `repositories.ts`):
@@ -138,7 +138,7 @@ Regler (från `executor.ts` och `repositories.ts`):
 | `partial` | Minst en avvikelse är öppen, ELLER minst ett av utbetalningens kommandon är `dead` |
 | `complete` | Alla rader lösta, verifikat köat, inget kommando `dead` |
 
-Viktigt att förstå: `complete` betyder att utbetalningen är fullt avstämd och **köad**, inte att kommandona är utförda. Statusen skrivs bara när `processPayout` körs i live-läge (`payout`-raden skrivs över vid varje körning). Om ett kommando blir `dead` efter att utbetalningen markerats `complete` ändras statusen först vid nästa `processPayout`-körning för den utbetalningen. För att se verklig utförandestatus, läs kommandona (`GET /v1/payouts/:id` eller SQL). Utbetalningar som är `rejected` återupptas inte av `syncTenant` (bara `partial`).
+Viktigt att förstå: `complete` betyder att utbetalningen är fullt avstämd och **köad**, inte att kommandona är utförda. Statusen skrivs bara när `processPayout` körs i live-läge (`payout`-raden skrivs över vid varje körning). Blir ett kommando `dead` efter att utbetalningen markerats `complete` sätter utföraren (`onDead` i `createApp`) utbetalningen till `partial` direkt och skriver en revisionspost (`command.dead`). Dessutom larmar `runCycle` kritiskt i varje cykel så länge något kommando är dött (`countDead`). För att se verklig utförandestatus, läs kommandona (`GET /v1/payouts/:id`). Både `partial` och `rejected` återupptas av `syncTenant` i live-läge (en saknad faktura kan ha dykt upp, eller leverantören kan ha rättat utbetalningen).
 
 ### 4.3 Avvikelsestatus (`reconcile_exception.status`, `ExceptionStatus`)
 
@@ -182,7 +182,7 @@ stateDiagram-v2
 Utföraren ger *minst en gång*-leverans, inte *exakt en gång*. Samma kommando körs två gånger bland annat när:
 
 1. Affärssystemet tog emot kommandot men processen kraschade, eller `markSucceeded` misslyckades, innan resultatet sparades. Kommandot ligger kvar som `in_progress` (räknas som `unconfirmed` i `RunSummary`) och släpps av `recoverStale`.
-2. `recoverStale` släpper ett kommando som egentligen fortfarande kör (gränsen är 10 minuter som standard, `staleAfterMs`). Då kan två utförare köra samma kommando samtidigt.
+2. `recoverStale` släpper ett kommando som egentligen fortfarande kör (gränsen är 30 minuter som standard, `DEFAULT_STALE_AFTER_MS`, vald större än en hel omgång: `batchSize` x `executeTimeoutMs`. Varje anrop mot affärssystemet har dessutom en timeout, 60 s som standard). Då kan två utförare köra samma kommando samtidigt.
 3. Ett tillfälligt fel (till exempel timeout) inträffar efter att affärssystemet utfört kommandot.
 
 I alla tre fallen är det **enbart gatewayens idempotens** som förhindrar dubbelbokning. `FakeLedgerGateway` uppfyller kravet (slår upp nyckeln i minnet först). **Det är inte verifierat att Fortnox kan stödja det.** SPEC avsnitt 6 antar att Fortnox saknar inbyggd idempotens. En riktig adapter måste därför själv kunna avgöra "är det här redan gjort?" innan den skriver, till exempel genom att spara nyckeln i ett fält på fakturan/verifikatet eller i en egen tabell, och kontrollera den. Särskilt svårt är fallet där anropet nått Fortnox men svaret försvann: adaptern måste då kunna slå upp resultatet i Fortnox. Tills detta är löst och testat mot Fortnox sandbox ska systemet inte köras live.
@@ -207,10 +207,10 @@ Kö-nivåns unikhet gäller globalt på `key`. Nyckeln innehåller tenant-id, s�
 `dry_run` är ett läge i `processPayout` (`mode: 'dry_run'`) och en inställning per kund i `TenantConfig.mode`. Det betyder:
 
 - Motorn och konfliktkontrollen körs fullt ut, mot färsk fakturastatus och mot redan köade kommandon. Resultatet (`ProcessPayoutOutcome.result`) returneras som förslag.
-- **Det enda som skrivs är en revisionspost** med åtgärden `payout.dry_run` (id, status, antal kommandon, avvikelsekoder). Inga kommandon köas, inga avvikelser läggs in, ingen `payout`-rad skrivs, inga avvikelser stängs.
+- **Ingenting skrivs.** Inga kommandon köas, inga avvikelser läggs in, ingen `payout`-rad skrivs, inga avvikelser stängs, och ingen revisionspost skrivs (den skulle annars växa med en post per cykel för alltid).
 - `syncTenant` återupptar inte `partial`-utbetalningar i dry_run (det finns inga sparade).
 - Det finns **ingen godkännandefunktion**. "Godkännande" betyder i koden att samma utbetalning körs igen med `mode: 'live'`, och att kundens `TenantConfig.mode` sätts om av den som äger konfigurationen. Ingen tabell eller endpoint hanterar det.
-- Eftersom dry_run bara skriver en revisionspost syns förslagen inte i API:t. De syns bara i returvärdet från `processPayout`/`syncTenant`.
+- Eftersom dry_run inte sparar något syns förslagen inte i API:t. De syns bara i returvärdet från `processPayout`/`syncTenant`.
 - Nya kunder skapas alltid i `dry_run` (`tenant.mode`, standardvärde i schemat). Läget ändras med `TenantRepository.setMode`. Det finns ingen endpoint eller kommandorad för det.
 - `syncTenant` flyttar **inte** fram cursorn (`sync_state`) i dry_run. När kunden byter till live hämtas därför samma utbetalningar på nytt och bokförs på riktigt. Granska förslagen innan läget byts.
 

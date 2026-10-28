@@ -36,9 +36,9 @@ Status: tidigt skede, inget i drift. Dokumentet skiljer på **implementerat** (f
 ### 3.2 Append-only revisionslogg
 
 - `audit_log` har en trigger (`audit_log_no_update`) som kastar fel vid `update` och `delete`. Gränssnittet `AuditLog` har bara `append` och `list`.
-- `processPayout` skriver en post per körning (live: `payout.processed`, dry_run: `payout.dry_run`) i samma transaktion som övriga ändringar.
+- `processPayout` skriver en post per körning (live: `payout.processed`, bara när något faktiskt ändrats; dry_run loggar inget) i samma transaktion som övriga ändringar.
 - **Begränsning:** triggern skyddar inte mot `truncate`, mot att triggern tas bort, eller mot superuser. Skydd mot en illasinnad databasadministratör kräver åtgärder utanför koden (separata roller, loggexport till write-once-lagring).
-- **Lucka:** att stänga en avvikelse via `POST /v1/exceptions/:id/resolve` skriver ingen revisionspost. Manuella SQL-ingrepp loggas bara om den som gör dem skriver en post (RUNBOOK avsnitt 5). Utförarens statusändringar av kommandon loggas inte i `audit_log` (de syns i `ledger_command`, som kan uppdateras).
+- Att stänga en avvikelse (`exception.resolved`) och köa om ett dött kommando (`command.requeued`) via API:t revisionsloggas atomiskt med åtgärden. Handlingens `actor` är 'api' utan nyckel-id (lucka). Manuella SQL-ingrepp loggas bara om den som gör dem skriver en post (RUNBOOK avsnitt 5). Utförarens statusändringar av kommandon loggas inte i `audit_log` (de syns i `ledger_command`, som kan uppdateras).
 
 ### 3.3 Inga känsliga data i loggar
 

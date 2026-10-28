@@ -19,6 +19,13 @@ KEY="$($ADMIN issue-key T1 30 | tail -1)"
 echo '{"clientId":"hemlig-id","clientSecret":"hemlig-nyckel"}' | $ADMIN set-connection T1 fortnox
 $ADMIN list-tenants
 
+echo "== Ogiltig indata får inte skrivas ut =="
+if OUT="$(echo '{"token": "sk_live_HEMLIG' | $ADMIN set-connection T1 fortnox 2>&1)"; then echo "FEL: ogiltig JSON accepterades"; exit 1; fi
+if echo "$OUT" | grep -q "sk_live"; then echo "FEL: hemlighet i felutskrift"; exit 1; fi
+echo "felmeddelande: $OUT"
+if $ADMIN issue-key T1 30d >/dev/null 2>&1; then echo "FEL: ogiltigt dagsvärde accepterades"; exit 1; fi
+echo "ogiltigt dagsvärde avvisades"
+
 echo "== Server =="
 node --import tsx src/main.ts >"$(dirname "$0")/../.smoke-server.log" 2>&1 &
 SERVER=$!

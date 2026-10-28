@@ -61,7 +61,8 @@ async function main() {
     stopping = true;
     logger.info('Stänger ner', { signal });
     if (timer) clearTimeout(timer);
-    await running; // låt pågående cykel bli klar
+    // Låt pågående cykel bli klar, men vänta inte för evigt på en hängande gateway.
+    await Promise.race([running, new Promise((resolve) => setTimeout(resolve, 30_000))]);
     await app.server.close();
     await pool.end();
     process.exit(0);

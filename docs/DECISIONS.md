@@ -46,7 +46,7 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 
 **Status:** läget implementerat, godkännandeflödet inte.
 
-**Beslut:** `processPayout` har `mode: 'dry_run'`, och kundens `TenantConfig.mode` styr om `syncTenant` kör dry_run eller live. I dry_run beräknas allt men det enda som skrivs är en revisionspost.
+**Beslut:** `processPayout` har `mode: 'dry_run'`, och kundens `TenantConfig.mode` styr om `syncTenant` kör dry_run eller live. I dry_run beräknas allt men ingenting skrivs.
 
 **Motivering:** nya kunder ska kunna se förslag innan något bokförs (SPEC avsnitt 6). Eftersom inget köas kan ingenting nå affärssystemet.
 
@@ -111,3 +111,22 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 **Motivering:** flyttal ger avrundningsdrift. Delar av en delkreditering (moms och netto) ska alltid summera exakt till helheten.
 
 **Alternativ:** decimalbibliotek (onödigt när allt är i minsta enhet). Flyttal (olämpligt för bokföring).
+
+## ADR-010: Hårdning efter oberoende granskning
+
+**Bakgrund:** en oberoende granskning av kö, tjänstelager, säkerhet och API hittade bekräftade fel som ingen testsvit fångat.
+
+**Beslut och ändringar:**
+- `claimDue` hoppar över kunder som är avstängda eller i dry_run.
+- Ett kommando som dör efter att utbetalningen blivit `complete` gör den `partial` (`onDead`), och `runCycle` larmar kritiskt så länge något är dött.
+- Retry-After respekteras men aldrig under vanlig backoff, aldrig över taket, och ogiltiga värden ignoreras.
+- Varje gateway-anrop har en timeout, och ett fel när utfallet sparas lämnar inte resten av omgången låst.
+- Stale-gränsen är 30 minuter, större än en hel omgång, för att inte släppa kommandon som fortfarande körs.
+- `markSucceeded`/`markFailed` är fencade på försöksnummer, så en försenad arbetare kan inte skriva över ett senare försök.
+- Idempotensnyckeln är unik per kund (migration 004). `audit_log` skyddas även mot TRUNCATE.
+- Mänskliga åtgärder via API:t och deras revisionspost är atomiska.
+- Avvisade utbetalningar återupptas som delvis avstämda.
+- dry_run skriver ingenting, inte ens revisionsposter.
+- Kopplingar som inte är aktiva lämnar inte ut uppgifter.
+
+**Kvarstående (se NEXT_STEPS och SECURITY):** gateway-idempotens mot riktiga affärssystem, paginering och rate limiting i API:t, `actor` utan nyckel-id, främmande nycklar mot `tenant`, rättvisa mellan kunder vid långsam gateway.

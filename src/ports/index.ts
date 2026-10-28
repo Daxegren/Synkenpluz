@@ -54,6 +54,9 @@ export interface CommandRepository {
 
   listByPayout(tenantId: string, payoutId: string): Promise<StoredCommand[]>;
 
+  /** Antal döda kommandon i hela systemet, för att kunna larma så länge något ligger och väntar på en människa. */
+  countDead(): Promise<number>;
+
   /**
    * Mänsklig åtgärd: sätter ett dött kommando tillbaka i kön med nollställda försök.
    * Returnerar false om kommandot inte finns, tillhör annan kund eller inte är dött.

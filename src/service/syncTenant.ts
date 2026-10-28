@@ -79,9 +79,15 @@ export async function syncTenant(deps: SyncDeps, tenantId: string): Promise<Sync
     await handle(payout);
   }
 
-  // 2. Återuppta delvis avstämda (bara i live-läge, dry_run sparar inget att återuppta).
+  // 2. Återuppta delvis avstämda och avvisade (bara i live-läge, dry_run sparar inget att återuppta).
   if (config.mode === 'live') {
-    const open = await deps.uow.run((repos) => repos.payouts.list(tenantId, { status: 'partial' }));
+    // Både delvis avstämda och avvisade tas upp igen: en saknad faktura kan ha dykt upp, och
+    // leverantören kan ha rättat en utbetalning som först avvisades. Omkörning är idempotent och
+    // loggar inget om inget ändrats.
+    const open = await deps.uow.run(async (repos) => [
+      ...(await repos.payouts.list(tenantId, { status: 'partial' })),
+      ...(await repos.payouts.list(tenantId, { status: 'rejected' })),
+    ]);
     for (const record of open) {
       if (seen.has(record.payoutId)) continue;
       try {

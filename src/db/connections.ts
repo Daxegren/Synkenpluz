@@ -70,7 +70,7 @@ export function createConnectionRepository(db: Db, keys: KeyProvider): Connectio
         if (existing[0]) {
           const blob = await seal(credentials, tenantId, existing[0].id);
           const rows = await tx.query<InfoRow>(
-            `update connection set encrypted_credentials = $3, key_id = $4, updated_at = $5
+            `update connection set encrypted_credentials = $3, key_id = $4, updated_at = $5, status = 'active'
               where id = $1 and tenant_id = $2 returning ${INFO_COLUMNS}`,
             [existing[0].id, tenantId, blob, blobKeyId(blob), now],
           );
@@ -113,7 +113,8 @@ export function createConnectionRepository(db: Db, keys: KeyProvider): Connectio
 
     async getCredentialsForExecution(tenantId, provider) {
       const rows = await db.query<{ id: string; encrypted_credentials: string }>(
-        'select id, encrypted_credentials from connection where tenant_id = $1 and provider = $2',
+        // Bara aktiva kopplingar lämnar ut uppgifter. En avstängd koppling eller en som behöver ny inloggning får inte användas.
+        `select id, encrypted_credentials from connection where tenant_id = $1 and provider = $2 and status = 'active'`,
         [tenantId, provider],
       );
       const row = rows[0];

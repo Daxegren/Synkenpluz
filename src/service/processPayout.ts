@@ -55,15 +55,7 @@ export async function processPayout(
     const result = withConflicts(reconciled, existing, payout);
 
     if (mode === 'dry_run') {
-      await repos.audit.append(
-        {
-          tenantId,
-          actor,
-          action: 'payout.dry_run',
-          details: summarize(payout.id, result),
-        },
-        now,
-      );
+      // Ett förslag sparar inget och loggas inte: det skulle ge en revisionspost per cykel för alltid.
       return { mode, result, enqueued: 0, autoResolved: 0 };
     }
 

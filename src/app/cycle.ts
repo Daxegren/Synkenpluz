@@ -75,9 +75,11 @@ export async function runCycle(deps: CycleDeps): Promise<CycleReport> {
   }
 
   const execution = await drain(deps.executor, deps.executorOptions);
-  if (execution.dead > 0) {
-    log.error('Kommandon har permanent misslyckats', { dead: execution.dead });
-    alerts.push({ severity: 'critical', message: `${execution.dead} kommando(n) har permanent misslyckats och blockerar sina utbetalningar` });
+  // Larma så länge något ligger dött, inte bara i den cykel där det dog. Det kräver en människa.
+  const dead = await deps.executor.commands.countDead();
+  if (dead > 0) {
+    log.error('Kommandon väntar på mänsklig hantering', { dead });
+    alerts.push({ severity: 'critical', message: `${dead} kommando(n) har permanent misslyckats och blockerar sina utbetalningar` });
   }
   if (execution.unconfirmed > 0) {
     alerts.push({ severity: 'warning', message: `${execution.unconfirmed} kommando(n) utfört men ej bekräftat, återupptas automatiskt` });

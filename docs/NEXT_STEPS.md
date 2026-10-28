@@ -39,7 +39,6 @@ Likaså: gatewayens **idempotens** (kravet i `LedgerGateway`) är bara bevisad f
 ## Redan känt och medvetet uppskjutet
 
 - Förslag från dry_run sparas inte och syns inte i API:t. Ett explicit godkännandeflöde saknas.
-- Utbetalningar som avvisats (`rejected`) tas inte upp igen automatiskt, bara delvis avstämda. De kräver manuell omkörning.
 - Larm skapas av `runCycle` men skickas ingenstans (e-post/pager).
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
 - Ingen rate limiting på API:t, ingen paginering på listor.

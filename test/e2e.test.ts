@@ -85,7 +85,7 @@ describe('hela kedjan', () => {
     expect((await repos.payouts.get('T1', 'P1'))?.status).toBe('complete');
   });
 
-  it('dry_run beräknar förslag utan att spara något utom en revisionspost', async () => {
+  it('dry_run beräknar förslag utan att spara eller logga något', async () => {
     const { run, repos, ledger, execDeps } = await setup(['A']);
     const outcome = await run([payment('L1', 'REF-A', 12500)], { mode: 'dry_run' });
 
@@ -94,7 +94,7 @@ describe('hela kedjan', () => {
     expect(outcome.enqueued).toBe(0);
     expect(await repos.commands.listByPayout('T1', 'P1')).toEqual([]);
     expect(await repos.payouts.get('T1', 'P1')).toBeNull();
-    expect((await repos.audit.list('T1')).map((a) => a.action)).toEqual(['payout.dry_run']);
+    expect(await repos.audit.list('T1')).toEqual([]);
 
     await drain(execDeps);
     expect(ledger.calls).toBe(0);
@@ -206,7 +206,7 @@ describe('felhantering i utföraren', () => {
     expect(await runDueCommands(deps)).toMatchObject({ unconfirmed: 1, succeeded: 0 });
     expect(ledger.executed).toHaveLength(1);
 
-    clock.advance(11 * 60_000);
+    clock.advance(31 * 60_000);
     expect(await recoverStale(deps)).toBe(1);
     expect(await drain(deps)).toMatchObject({ succeeded: 2 });
 
