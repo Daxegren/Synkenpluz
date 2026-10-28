@@ -39,10 +39,15 @@ export interface CommandRepository {
   /** Hämtar och låser upp till `limit` kommandon som är redo att köras. */
   claimDue(now: Date, limit: number): Promise<StoredCommand[]>;
 
-  markSucceeded(id: string, externalId: string, now: Date): Promise<void>;
+  /**
+   * `attempt` är försöksnumret (StoredCommand.attempts) som arbetaren fick vid claimDue. Anges det
+   * gäller uppdateringen bara om kommandot fortfarande körs på just det försöket, så att en
+   * försenad arbetare inte kan skriva över ett senare försöks utfall.
+   */
+  markSucceeded(id: string, externalId: string, now: Date, attempt?: number): Promise<void>;
 
   /** Misslyckad körning. `retryAt` null betyder permanent fel (status 'dead'). */
-  markFailed(id: string, error: string, retryAt: Date | null, now: Date): Promise<void>;
+  markFailed(id: string, error: string, retryAt: Date | null, now: Date, attempt?: number): Promise<void>;
 
   /** Återställer kommandon som fastnat i 'in_progress' (t.ex. efter krasch). */
   releaseStale(olderThan: Date, now: Date): Promise<number>;

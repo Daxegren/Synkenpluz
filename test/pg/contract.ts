@@ -117,6 +117,25 @@ export function dbContract(name: string, factory: DbFactory, options: { skip?: b
         expect(again?.lastError).toBe('tillfälligt');
       });
 
+      it('samma nyckel hos två kunder blockerar inte varandra', async () => {
+        const { repos, clock } = await stack();
+        expect(await repos.commands.enqueue('T1', 'P1', [pay('samma')], clock.now())).toBe(1);
+        expect(await repos.commands.enqueue('T2', 'P1', [pay('samma')], clock.now())).toBe(1);
+      });
+
+      it('en försenad arbetare kan inte skriva över ett senare försöks utfall', async () => {
+        const { repos, clock } = await stack();
+        await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
+        const [workerA] = await repos.commands.claimDue(clock.now(), 10);
+        clock.advance(11 * 60_000);
+        await repos.commands.releaseStale(new Date(clock.now().getTime() - 10 * 60_000), clock.now());
+        const [workerB] = await repos.commands.claimDue(clock.now(), 10);
+        await repos.commands.markSucceeded(workerB!.id, 'EXT-B', clock.now(), workerB!.attempts);
+        await repos.commands.markFailed(workerA!.id, 'sent fel', new Date(clock.now().getTime() + 1000), clock.now(), workerA!.attempts);
+        const [final] = await repos.commands.listByPayout('T1', 'P1');
+        expect(final).toMatchObject({ status: 'succeeded', externalId: 'EXT-B', lastError: null });
+      });
+
       it('släpper fastnade kommandon', async () => {
         const { repos, clock } = await stack();
         await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
@@ -207,6 +226,7 @@ export function dbContract(name: string, factory: DbFactory, options: { skip?: b
         expect(entry?.at).toBeInstanceOf(Date);
         await expect(db.query("update audit_log set action = 'y'")).rejects.toThrow(/append-only/);
         await expect(db.query('delete from audit_log')).rejects.toThrow(/append-only/);
+        await expect(db.query('truncate audit_log')).rejects.toThrow(/append-only/);
         expect(await repos.audit.list('T1')).toHaveLength(1);
       });
     });

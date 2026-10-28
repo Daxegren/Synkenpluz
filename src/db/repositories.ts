@@ -62,7 +62,7 @@ export function createCommandRepository(db: Db): CommandRepository {
             `insert into ledger_command
                (tenant_id, payout_id, seq, key, command, status, next_attempt_at, created_at, updated_at)
              values ($1, $2, $3, $4, $5::jsonb, 'pending', $6, $6, $6)
-             on conflict (key) do nothing
+             on conflict (tenant_id, key) do nothing
              returning id`,
             [tenantId, payoutId, seq, command.key, JSON.stringify(command), now],
           );
@@ -101,22 +101,25 @@ export function createCommandRepository(db: Db): CommandRepository {
       return rows.sort((a, b) => a.seq - b.seq).map(toCommand);
     },
 
-    async markSucceeded(id, externalId, now) {
+    // Både markSucceeded och markFailed gäller bara ett kommando som fortfarande körs, och när
+    // `attempt` anges bara för just det försöket. Annars kan en försenad arbetare skriva över
+    // utfallet av ett senare försök (t.ex. efter releaseStale) och få ett lyckat kommando att köras om.
+    async markSucceeded(id, externalId, now, attempt) {
       await db.query(
         `update ledger_command
             set status = 'succeeded', external_id = $2, last_error = null, locked_at = null, updated_at = $3
-          where id = $1`,
-        [id, externalId, now],
+          where id = $1 and status = 'in_progress' and ($4::int is null or attempts = $4)`,
+        [id, externalId, now, attempt ?? null],
       );
     },
 
-    async markFailed(id, error, retryAt, now) {
+    async markFailed(id, error, retryAt, now, attempt) {
       await db.query(
         `update ledger_command
             set status = $2, last_error = $3, locked_at = null, updated_at = $4,
                 next_attempt_at = coalesce($5, next_attempt_at)
-          where id = $1`,
-        [id, retryAt ? 'failed' : 'dead', error, now, retryAt],
+          where id = $1 and status = 'in_progress' and ($6::int is null or attempts = $6)`,
+        [id, retryAt ? 'failed' : 'dead', error, now, retryAt, attempt ?? null],
       );
     },
 

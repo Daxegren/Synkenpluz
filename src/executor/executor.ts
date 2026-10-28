@@ -60,21 +60,21 @@ export async function runDueCommands(deps: ExecutorDeps, options: ExecutorOption
       const retryable = error instanceof LedgerError ? error.retryable : true;
       const exhausted = item.attempts >= opts.maxAttempts;
       if (!retryable || exhausted) {
-        await deps.commands.markFailed(item.id, describeError(error), null, now);
+        await deps.commands.markFailed(item.id, describeError(error), null, now, item.attempts);
         summary.dead++;
       } else {
         const delay =
           error instanceof LedgerError && error.retryAfterMs !== undefined
             ? error.retryAfterMs
             : backoffDelayMs(item.attempts, opts.baseDelayMs, opts.maxDelayMs);
-        await deps.commands.markFailed(item.id, describeError(error), new Date(now.getTime() + delay), now);
+        await deps.commands.markFailed(item.id, describeError(error), new Date(now.getTime() + delay), now, item.attempts);
         summary.retrying++;
       }
       continue;
     }
 
     try {
-      await deps.commands.markSucceeded(item.id, externalId, deps.clock.now());
+      await deps.commands.markSucceeded(item.id, externalId, deps.clock.now(), item.attempts);
       summary.succeeded++;
     } catch {
       // Affärssystemet har tagit emot kommandot men vi kunde inte spara det. Kommandot ligger kvar

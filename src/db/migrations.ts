@@ -123,6 +123,18 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    id: '004_command_key_per_tenant_and_audit_truncate',
+    sql: `
+      -- Idempotensnyckeln var globalt unik: en kunds nyckel kunde tyst blockera en annans kommando.
+      alter table ledger_command drop constraint ledger_command_key_key;
+      alter table ledger_command add constraint ledger_command_tenant_key unique (tenant_id, key);
+
+      -- Radtriggern stoppar UPDATE/DELETE men inte TRUNCATE. Samma funktion stoppar även den.
+      create trigger audit_log_no_truncate before truncate on audit_log
+        for each statement execute function audit_log_immutable();
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {

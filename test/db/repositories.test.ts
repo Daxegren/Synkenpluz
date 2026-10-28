@@ -90,6 +90,45 @@ describe('kommandokö', () => {
     expect(await repos.commands.requeue('T1', 'finns-inte', clock.now())).toBe(false);
   });
 
+  it('samma nyckel hos två kunder blockerar inte varandra (nyckeln är unik per kund)', async () => {
+    const { repos, clock } = await createTestStack();
+    expect(await repos.commands.enqueue('T1', 'P1', [pay('samma')], clock.now())).toBe(1);
+    expect(await repos.commands.enqueue('T2', 'P1', [pay('samma')], clock.now())).toBe(1);
+    expect(await repos.commands.listByPayout('T2', 'P1')).toHaveLength(1);
+  });
+
+  it('en försenad arbetare kan inte skriva över ett senare försöks utfall', async () => {
+    const { repos, clock } = await createTestStack();
+    await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
+
+    const [workerA] = await repos.commands.claimDue(clock.now(), 10); // försök 1
+    clock.advance(11 * 60_000);
+    await repos.commands.releaseStale(new Date(clock.now().getTime() - 10 * 60_000), clock.now());
+    const [workerB] = await repos.commands.claimDue(clock.now(), 10); // försök 2
+    expect(workerB?.attempts).toBe(2);
+
+    await repos.commands.markSucceeded(workerB!.id, 'EXT-B', clock.now(), workerB!.attempts);
+    // Arbetare A kommer sent med ett fel för försök 1. Det får inte ändra något.
+    await repos.commands.markFailed(workerA!.id, 'sent fel', new Date(clock.now().getTime() + 1000), clock.now(), workerA!.attempts);
+
+    const [final] = await repos.commands.listByPayout('T1', 'P1');
+    expect(final).toMatchObject({ status: 'succeeded', externalId: 'EXT-B', lastError: null });
+  });
+
+  it('en försenad arbetare kan inte heller störa ett pågående senare försök', async () => {
+    const { repos, clock } = await createTestStack();
+    await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
+    const [workerA] = await repos.commands.claimDue(clock.now(), 10);
+    clock.advance(11 * 60_000);
+    await repos.commands.releaseStale(new Date(clock.now().getTime() - 10 * 60_000), clock.now());
+    const [workerB] = await repos.commands.claimDue(clock.now(), 10);
+
+    await repos.commands.markFailed(workerA!.id, 'sent fel', null, clock.now(), workerA!.attempts); // ska ignoreras
+    expect((await repos.commands.listByPayout('T1', 'P1'))[0]?.status).toBe('in_progress');
+    await repos.commands.markSucceeded(workerB!.id, 'EXT-B', clock.now(), workerB!.attempts);
+    expect((await repos.commands.listByPayout('T1', 'P1'))[0]?.status).toBe('succeeded');
+  });
+
   it('släpper fastnade kommandon', async () => {
     const { repos, clock } = await createTestStack();
     await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
@@ -178,6 +217,8 @@ describe('revisionslogg', () => {
     expect(await repos.audit.list('T1')).toHaveLength(1);
     await expect(db.query("update audit_log set action = 'y'")).rejects.toThrow(/append-only/);
     await expect(db.query('delete from audit_log')).rejects.toThrow(/append-only/);
+    await expect(db.query('truncate audit_log')).rejects.toThrow(/append-only/);
+    expect(await repos.audit.list('T1')).toHaveLength(1);
   });
 });
 
