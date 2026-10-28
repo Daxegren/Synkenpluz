@@ -110,6 +110,19 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    id: '003_sync_state_and_accounts',
+    sql: `
+      -- Kontoplan per kund för bokföring av utbetalningar: {bank, clearing, feeExpense, feeVat}.
+      alter table tenant add column accounts jsonb;
+
+      create table sync_state (
+        tenant_id  text primary key references tenant (id),
+        cursor     text,
+        updated_at timestamptz not null
+      );
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {

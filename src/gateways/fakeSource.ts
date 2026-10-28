@@ -6,25 +6,31 @@ import type { PayoutSource, SyncStateStore, TenantConfig, TenantConfigProvider }
  * Mondido-implementation: det finns ingen verifierad kunskap om Mondidos API här.
  */
 export class FakePayoutSource implements PayoutSource {
-  private readonly payouts: Payout[] = [];
+  private readonly entries: Array<{ tenantId: string | null; payout: Payout }> = [];
   failListing: Error | null = null;
 
-  add(payout: Payout): void {
-    this.payouts.push(structuredClone(payout));
+  /** Utan `tenantId` syns utbetalningen för alla kunder. Med `tenantId` bara för den kunden. */
+  add(payout: Payout, tenantId: string | null = null): void {
+    this.entries.push({ tenantId, payout: structuredClone(payout) });
   }
 
-  async listPayoutsSince(_tenantId: string, cursor: string | null) {
+  private visible(tenantId: string) {
+    return this.entries.filter((e) => e.tenantId === null || e.tenantId === tenantId);
+  }
+
+  async listPayoutsSince(tenantId: string, cursor: string | null) {
     if (this.failListing) throw this.failListing;
+    const visible = this.visible(tenantId);
     const start = cursor === null ? 0 : Number(cursor);
     return {
-      payouts: this.payouts.slice(start).map((p) => structuredClone(p)),
-      nextCursor: String(this.payouts.length),
+      payouts: visible.slice(start).map((e) => structuredClone(e.payout)),
+      nextCursor: String(visible.length),
     };
   }
 
-  async getPayout(_tenantId: string, payoutId: string) {
-    const found = this.payouts.find((p) => p.id === payoutId);
-    return found ? structuredClone(found) : null;
+  async getPayout(tenantId: string, payoutId: string) {
+    const found = this.visible(tenantId).find((e) => e.payout.id === payoutId);
+    return found ? structuredClone(found.payout) : null;
   }
 }
 

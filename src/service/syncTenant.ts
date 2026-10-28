@@ -99,8 +99,10 @@ export async function syncTenant(deps: SyncDeps, tenantId: string): Promise<Sync
     }
   }
 
+  // I dry_run flyttas cursorn inte fram: inget sparades, så utbetalningarna måste hämtas på
+  // nytt (och bokföras på riktigt) när kunden går live.
   const newFailures = summary.failed.filter((f) => seen.has(f.payoutId));
-  if (newFailures.length === 0 && nextCursor !== cursor) {
+  if (config.mode === 'live' && newFailures.length === 0 && nextCursor !== cursor) {
     await deps.state.setCursor(tenantId, nextCursor);
   }
   return summary;

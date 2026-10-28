@@ -119,3 +119,19 @@ describe('syncTenant', () => {
     expect(await repos.commands.listByPayout('T1', 'P1')).toEqual([]);
   });
 });
+
+describe('syncTenant: dry_run och cursor', () => {
+  it('flyttar inte fram cursorn i dry_run, så utbetalningarna bokförs när kunden går live', async () => {
+    const stack = await setup('dry_run');
+    stack.source.add(makePayout('P1', [payment('L1', 'REF-A', 12500)]));
+
+    await syncTenant(stack.deps, 'T1');
+    expect(await stack.state.getCursor('T1')).toBeNull();
+
+    // Kunden går live: samma utbetalning hämtas på nytt och köas på riktigt.
+    const live: SyncDeps = { ...stack.deps, config: new MemoryTenantConfig({ T1: { accounts, mode: 'live' } }) };
+    const summary = await syncTenant(live, 'T1');
+    expect(summary).toMatchObject({ fetched: 1, complete: 1 });
+    expect(await stack.repos.commands.listByPayout('T1', 'P1')).toHaveLength(2);
+  });
+});

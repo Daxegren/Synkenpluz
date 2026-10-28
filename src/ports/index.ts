@@ -48,6 +48,12 @@ export interface CommandRepository {
   releaseStale(olderThan: Date, now: Date): Promise<number>;
 
   listByPayout(tenantId: string, payoutId: string): Promise<StoredCommand[]>;
+
+  /**
+   * Mänsklig åtgärd: sätter ett dött kommando tillbaka i kön med nollställda försök.
+   * Returnerar false om kommandot inte finns, tillhör annan kund eller inte är dött.
+   */
+  requeue(tenantId: string, id: string, now: Date): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------- avvikelser

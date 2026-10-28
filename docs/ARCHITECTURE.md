@@ -1,6 +1,6 @@
 # Arkitektur: så som den är implementerad
 
-Det här dokumentet beskriver koden i repot, inte önskemål. Där `docs/SPEC.md` och koden skiljer sig gäller koden, och skillnaden är utpekad i avsnitt 10. Se även [DECISIONS.md](DECISIONS.md), [RUNBOOK.md](RUNBOOK.md), [SECURITY.md](SECURITY.md) och [API.md](API.md).
+Det här dokumentet beskriver koden i repot, inte önskemål (läget när det skrevs, migrationerna 001 till 003). Där `docs/SPEC.md` och koden skiljer sig gäller koden, och skillnaden är utpekad i avsnitt 10. Se även [DECISIONS.md](DECISIONS.md), [RUNBOOK.md](RUNBOOK.md), [SECURITY.md](SECURITY.md) och [API.md](API.md).
 
 ## 1. Ärlig statusbild
 
@@ -8,14 +8,16 @@ Det här dokumentet beskriver koden i repot, inte önskemål. Där `docs/SPEC.md
 | --- | --- |
 | Avstämningsmotor (`src/engine/reconcile.ts`) | Implementerad och testad, ren funktion |
 | Tjänstelager (`processPayout`, `syncTenant`) | Implementerat och testat |
-| Kommandokö i Postgres-schema (`src/db`) | Implementerad. Körs i test mot PGlite (Postgres i WASM). Ingen riktig Postgres-klient finns i produktionskoden |
-| Utförare (`src/executor`) | Implementerad som funktioner. Det finns ingen process som anropar den i en loop |
-| HTTP-API (`src/api/server.ts`) | Implementerat (läsning + stänga avvikelser). Det finns ingen startfil som lyssnar på en port och ingen riktig nyckelhantering |
+| Databas (`src/db`) | Schema, kommandokö, repositorier. `createPgDb` (`src/db/pg.ts`, `pg`-pool) för riktig Postgres och `createPgliteDb` för test. Postgres-klienten testas bara av CI-jobbet `test/pg` (kräver `PG_TEST_URL`) |
+| Utförare (`src/executor`) | Implementerad som funktioner |
+| Körcykel (`src/app/cycle.ts`) | `runCycle`: `recoverStale`, `syncTenant` per kund, `drain`, och returnerar larmlista (`alerts`). Ingen schemaläggare anropar den, och ingen startfil finns |
+| HTTP-API (`src/api/server.ts`) | Implementerat (läsning + stänga avvikelser). Det finns ingen startfil som lyssnar på en port |
+| Kunder och API-nycklar (`src/db/tenants.ts`, `src/security/apiKeys.ts`) | Implementerat: tabellerna `tenant` och `api_key`, nycklar lagras som HMAC med pepper, återkallning och utgångsdatum. Ingen endpoint eller kommandorad för att skapa kunder eller nycklar |
+| Anslutningar och tokenkryptering (`src/db/connections.ts`, `src/security/crypto.ts`) | Implementerat: AES-256-GCM, nyckel-id i blobben, omkryptering. Endast `StaticKeyProvider` (test/dev) finns. Ingen KMS-provider. **Ingen adapter använder det ännu** |
 | Gateway mot affärssystem | **Endast `FakeLedgerGateway`** (`src/gateways/fake.ts`). Ingen Fortnox-adapter. Ingen verifierad kunskap om Fortnox API finns i repot |
 | Källa för utbetalningar (`PayoutSource`) | **Endast ett gränssnitt** (`src/ports/sources.ts`). Ingen Mondido-adapter |
 | Fakturaläsning (`InvoiceReader`) | **Endast ett gränssnitt** |
-| Tokenkryptering, `connection`, `tenant`-tabeller | **Finns inte.** `src/security` saknas |
-| Schemaläggning, larm, daglig kontrollsumma | **Finns inte** |
+| Schemaläggning (cron, loop), KMS-nyckelleverantör, daglig kontrollsumma | **Finns inte**. `runCycle` returnerar larm men skickar dem ingenstans |
 
 Allt som körs idag är alltså kärnlogik, databasschema och simulerade ytterkanter. Inga pengar eller verifikat kan flyttas i något riktigt system.
 
@@ -29,15 +31,17 @@ src/ports       Gränssnitt: CommandRepository, ExceptionRepository, PayoutRepos
                 PayoutSource, InvoiceReader, TenantConfigProvider, SyncStateStore (sources.ts)
 src/service     processPayout (en utbetalning), syncTenant (en kund, flera utbetalningar)
 src/executor    runDueCommands, drain, recoverStale, backoffDelayMs
-src/db          Db-gränssnitt, migrationer, Postgres-repositorier (SQL)
-src/gateways    FakeLedgerGateway (test)
+src/db          Db-gränssnitt (pg.ts, PGlite), migrationer, repositorier (SQL), tenants, connections, syncState
+src/security    apiKeys.ts (nyckelhash, authenticator), crypto.ts (envelope encryption)
+src/app         cycle.ts: en körcykel (recover, synk, utför)
+src/gateways    FakeLedgerGateway, FakePayoutSource (test)
 src/api         Fastify-server (buildServer)
 src/testing     In-memory-implementationer av portarna (test)
 ```
 
 Beroenderiktning: `api`, `service`, `executor` och `db` beror på `ports` och `domain`. `engine` beror bara på `domain`. Kärnan känner inte till Postgres, Fastify eller någon leverantör.
 
-`Db` (`src/db/db.ts`) är ett eget minimalt gränssnitt (`query`, `exec`, `transaction`). Den enda implementationen i repot är `createPgliteDb`. För drift mot en riktig Postgres krävs en motsvarande wrapper kring vald klient, och det är inte gjort.
+`Db` (`src/db/db.ts`) är ett eget minimalt gränssnitt (`query`, `exec`, `transaction`). Det har två implementationer: `createPgliteDb` (tester) och `createPgDb` (`src/db/pg.ts`, `pg.Pool`, int8 tolkas som säkert heltal eller kastar).
 
 ## 3. Dataflöde
 
@@ -98,7 +102,7 @@ Steg för steg:
 6. **Utför.** Utföraren hämtar förfallna kommandon (`claimDue`), anropar `LedgerGateway.execute` och sparar resultatet (`markSucceeded` eller `markFailed`).
 7. **Följ upp.** Människa läser avvikelser och utbetalningar via API:t, och hanterar döda kommandon via SQL (se RUNBOOK).
 
-Utföraren och `syncTenant` anropas av ingen schemaläggare i repot. Den som driftsätter måste själv köra dem (till exempel en loop eller ett cron-jobb) och köra `recoverStale` med jämna mellanrum.
+`runCycle` (`src/app/cycle.ts`) knyter ihop stegen: släpp fastnade kommandon (`recoverStale`), `syncTenant` för varje kund i `listTenants()`, därefter `drain`. Ett fel för en kund stoppar inte de andra. Den returnerar en `CycleReport` med `alerts`: `warning` för avvisade/misslyckade utbetalningar och misslyckad synk, `critical` när kommandon blivit `dead`, `warning` för `unconfirmed`. Det finns **ingen schemaläggare och inget som skickar larmen**: den som driftsätter måste anropa `runCycle` på schema (kön tål flera samtidiga arbetare) och själv vidarebefordra `alerts`. Kunder som synkas ska vara aktiva och ha kontoplan (`listSyncableTenants`). En kund utan kontoplan, eller avstängd, får ingen konfiguration (`createTenantConfigProvider` returnerar null) och synkas därför inte.
 
 ## 4. Tillståndsmaskiner
 
@@ -207,13 +211,19 @@ Kö-nivåns unikhet gäller globalt på `key`. Nyckeln innehåller tenant-id, s�
 - `syncTenant` återupptar inte `partial`-utbetalningar i dry_run (det finns inga sparade).
 - Det finns **ingen godkännandefunktion**. "Godkännande" betyder i koden att samma utbetalning körs igen med `mode: 'live'`, och att kundens `TenantConfig.mode` sätts om av den som äger konfigurationen. Ingen tabell eller endpoint hanterar det.
 - Eftersom dry_run bara skriver en revisionspost syns förslagen inte i API:t. De syns bara i returvärdet från `processPayout`/`syncTenant`.
-- **Känd lucka:** `syncTenant` flyttar fram cursorn även i dry_run. När en kund byter till live hämtas redan dry-run-bearbetade utbetalningar inte automatiskt igen. De måste köras om manuellt (via `getPayout`/`processPayout` live). Se RUNBOOK.
+- Nya kunder skapas alltid i `dry_run` (`tenant.mode`, standardvärde i schemat). Läget ändras med `TenantRepository.setMode`. Det finns ingen endpoint eller kommandorad för det.
+- **Känd lucka:** `syncTenant` flyttar fram cursorn (`sync_state`) även i dry_run. När en kund byter till live hämtas redan dry-run-bearbetade utbetalningar inte automatiskt igen. De måste köras om manuellt (via `getPayout`/`processPayout` live). Se RUNBOOK.
 
 dry_run är inte en sandbox mot affärssystemet: `LedgerGateway` anropas aldrig i dry_run eftersom inget köas.
 
 ## 9. Databasschema (migration `001_init`)
 
-`ledger_command`, `reconcile_exception`, `payout`, `audit_log`, plus `schema_migrations`. Alla tabeller har `tenant_id`. `audit_log` har en trigger som kastar fel vid `update` och `delete`. SPEC:ens `tenant`, `connection`, `payment_event`, `match` finns inte.
+- `001_init`: `ledger_command`, `reconcile_exception`, `payout`, `audit_log`. `audit_log` har en trigger som kastar fel vid `update` och `delete`.
+- `002_tenants_connections`: `tenant` (status, mode), `api_key` (hash, revoked_at, expires_at), `connection` (krypterade uppgifter, `key_id`).
+- `003_sync_state_and_accounts`: `tenant.accounts` (kontoplan som JSON) och `sync_state` (cursor per kund).
+- `schema_migrations` håller reda på körda migrationer.
+
+SPEC:ens `payment_event` och `match` finns inte. Tabellerna `ledger_command`, `reconcile_exception`, `payout` och `audit_log` har `tenant_id` men ingen främmande nyckel mot `tenant`.
 
 `migrate()` kör migrationer i ordning, var och en i egen transaktion, exakt en gång.
 
@@ -222,12 +232,12 @@ dry_run är inte en sandbox mot affärssystemet: `LedgerGateway` anropas aldrig 
 | SPEC | Kod |
 | --- | --- |
 | Kö med pg-boss (avsnitt 2) | Egen kötabell `ledger_command` med `for update skip locked`, se DECISIONS ADR-003 |
-| Drizzle eller Kysely (avsnitt 2) | Handskrivet SQL bakom `Db`-gränssnittet |
+| Drizzle eller Kysely (avsnitt 2) | Handskrivet SQL bakom `Db`-gränssnittet (`pg` som klient) |
 | Matchning 2: belopp + kund + datum (5.1) | Inte implementerad. Endast exakt referens |
-| `tenant`, `connection`, `payment_event`, `payout`-innehåll, `match` (avsnitt 4) | Inte implementerade. `payout` är en statusrad |
-| Krypterade token (avsnitt 7) | Inte implementerat |
+| `payment_event`, `payout`-innehåll, `match` (avsnitt 4) | Inte implementerade. `payout` är en statusrad. `tenant` och `connection` finns (migration 002) |
+| Krypterade token (avsnitt 7) | Kryptering finns (`src/security/crypto.ts`) men ingen KMS-provider och ingen adapter använder den |
 | Rate limiting per token (avsnitt 6) | Inte implementerat. Backoff finns, men ingen kö- eller tokenbegränsning |
-| Daglig kontrollsumma och larm (avsnitt 6) | Inte implementerad |
+| Daglig kontrollsumma och larm (avsnitt 6) | Kontrollsumma inte implementerad. `runCycle` ger enkla larm men ingen leverans |
 | Dry-run med godkännande (avsnitt 6) | Läget finns. Själva godkännandeflödet och cursor-hanteringen vid byte till live saknas |
 | "Ingen kod finns än" (SPEC, status) | Föråldrad |
-| Delvis avstämd: "kvarvarande delar i kö" (5.2) | Delvis: säkra rader köas, verifikat väntar tills allt är löst |
+| Delvis avstämd: "kvarvarande delar i kö" (5.2) | Delvis: säkra rader köas, verifikat väntar tills allt är löst. Ingen funktion för att markera en rad som manuellt hanterad |

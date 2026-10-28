@@ -1,6 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type {
+  AuditLog,
   Clock,
   CommandRepository,
   ExceptionRepository,
@@ -17,6 +18,8 @@ export interface ApiDeps {
   /** Returnerar tenantId för en giltig API-nyckel, annars null. */
   authenticate: (apiKey: string) => Promise<string | null>;
   clock: Clock;
+  /** Revisionslogg för mänskliga åtgärder via API:t. Bör alltid anges i drift. */
+  audit?: AuditLog;
 }
 
 declare module 'fastify' {
@@ -160,9 +163,26 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       if (!existing) throw new HttpError(404, 'not_found', 'Avvikelsen finns inte');
       const ok = await deps.exceptions.resolve(tenantId, id, body, deps.clock.now());
       if (!ok) throw new HttpError(409, 'conflict', 'Avvikelsen är inte öppen');
+      // Anteckningen är fri text från en människa och loggas därför inte. Bara id och utfall.
+      await deps.audit?.append(
+        { tenantId, actor: 'api', action: 'exception.resolved', details: { exceptionId: id, status: body.status, code: existing.code } },
+        deps.clock.now(),
+      );
       const updated = await deps.exceptions.get(tenantId, id);
       if (!updated) throw new HttpError(404, 'not_found', 'Avvikelsen finns inte');
       return presentException(updated);
+    });
+
+    v1.post('/commands/:id/retry', async (request) => {
+      const { id } = parse(idParams, request.params, 'path');
+      const tenantId = request.tenantId;
+      const ok = await deps.commands.requeue(tenantId, id, deps.clock.now());
+      if (!ok) throw new HttpError(409, 'conflict', 'Kommandot finns inte eller är inte permanent misslyckat');
+      await deps.audit?.append(
+        { tenantId, actor: 'api', action: 'command.requeued', details: { commandId: id } },
+        deps.clock.now(),
+      );
+      return { id, status: 'pending' };
     });
 
     v1.get('/payouts', async (request) => {

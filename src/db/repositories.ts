@@ -132,6 +132,17 @@ export function createCommandRepository(db: Db): CommandRepository {
       return rows.length;
     },
 
+    async requeue(tenantId, id, now) {
+      const rows = await db.query(
+        `update ledger_command
+            set status = 'pending', attempts = 0, next_attempt_at = $3, locked_at = null, updated_at = $3
+          where tenant_id = $1 and id::text = $2 and status = 'dead'
+          returning id`,
+        [tenantId, id, now],
+      );
+      return rows.length > 0;
+    },
+
     async listByPayout(tenantId, payoutId) {
       const rows = await db.query<CommandRow>(
         'select * from ledger_command where tenant_id = $1 and payout_id = $2 order by seq',

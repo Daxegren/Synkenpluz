@@ -114,6 +114,16 @@ export function createMemoryCommandRepository(): CommandRepository {
       return released;
     },
 
+    async requeue(tenantId, id, now) {
+      const r = rows.get(id);
+      if (!r || r.stored.tenantId !== tenantId || r.stored.status !== 'dead') return false;
+      r.stored.status = 'pending';
+      r.stored.attempts = 0;
+      r.stored.nextAttemptAt = new Date(now);
+      r.lockedAt = null;
+      return true;
+    },
+
     async listByPayout(tenantId, payoutId) {
       return [...rows.values()]
         .filter((r) => r.stored.tenantId === tenantId && r.stored.payoutId === payoutId)

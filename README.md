@@ -87,12 +87,36 @@ Tilläggen ligger utöver grundpaketet och tillkommer på priset. Alla kostar 25
 
 ## Status
 
-Tidigt skede. Funktionsbeskrivningen ovan bygger på informationen på webbplatsen. Det som finns i repot:
+Tidigt skede. Funktionsbeskrivningen ovan bygger på informationen på webbplatsen och är inte implementerad i sin helhet. Repot innehåller den tekniska kärnan för första skivan (utbetalningsavstämning, Mondido till Fortnox).
 
-- `docs/SPEC.md`: teknisk specifikation för första skivan (Mondido till Fortnox).
-- `src/engine/reconcile.ts`: avstämningsmotorn, en ren funktion utan nätverksanrop.
-- `src/domain/`: normaliserade typer och beloppshantering (heltal i minsta enhet).
-- Adaptrar mot Mondido och Fortnox saknas ännu.
+**Implementerat och testat:**
+
+- Avstämningsmotor (`src/engine/reconcile.ts`): ren funktion som matchar utbetalningsrader mot fakturor på exakt referens och belopp, hanterar återbetalningar och delkrediteringar, och bygger ett verifikat per utbetalning. Osäkra rader blir avvikelser.
+- Domän (`src/domain/`): normaliserade typer och beloppshantering med heltal i minsta enhet.
+- Tjänstelager (`src/service/`): `processPayout` (en utbetalning, atomiskt, med dry_run och konfliktdetektion) och `syncTenant`.
+- Kommandokö i Postgres-schema (`src/db/`, klient via `pg` eller PGlite) med ordning per utbetalning och idempotensnycklar, samt utförare med retry och återställning (`src/executor/`). Körcykel som knyter ihop synk och utförare (`src/app/cycle.ts`).
+- HTTP-API (`src/api/server.ts`) för att läsa utbetalningar och avvikelser och stänga avvikelser.
+- Kunder, hashade API-nycklar och krypterad lagring av anslutningsuppgifter (`src/security/`, `src/db/tenants.ts`, `src/db/connections.ts`).
+
+**Saknas:**
+
+- Adaptrar mot Mondido och Fortnox. Det finns bara gränssnitt (`src/ports/`) och en simulerad gateway för tester (`src/gateways/fake.ts`). Systemet kan inte bokföra i något riktigt affärssystem.
+- En körbar process: ingen startfil för API:t och ingen schemaläggare som anropar körcykeln.
+- Nyckelhantering mot KMS/secret manager (kryptering finns men bara med testnyckelleverantör), gallring och leverans av larm.
+- Produkt-, lager- och prissynk, order- och fakturaskapande, Spiris och övriga betalleverantörer.
+
+Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Dokumentation
+
+| Dokument | Innehåll |
+| --- | --- |
+| [docs/SPEC.md](docs/SPEC.md) | Teknisk specifikation (utkast, delvis föråldrad) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Implementerad arkitektur, tillståndsmaskiner, idempotens |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Beslutslogg (ADR) |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Driftinstruktion och avvikelsekoder |
+| [docs/SECURITY.md](docs/SECURITY.md) | Hotmodell, skydd, GDPR-checklista, kvarstående risker |
+| [docs/API.md](docs/API.md) | HTTP-API med exempel |
 
 ## Utveckling
 
@@ -100,5 +124,13 @@ Kräver Node.js 22 eller senare.
 
 ```sh
 npm install
-npm run check   # typkontroll och tester
+npm run typecheck   # tsc --noEmit
+npm test            # vitest run
+npm run check       # typkontroll och tester
+```
+
+CI (`.github/workflows/ci.yml`) kör `npm ci` och `npm run check` vid push och pull request, samt ett separat jobb som kör `test/pg` mot en Postgres 16-container (`PG_TEST_URL`). Lokalt mot egen Postgres:
+
+```sh
+PG_TEST_URL=postgres://postgres:postgres@localhost:5432/synkenpluz_test npx vitest run test/pg --passWithNoTests
 ```

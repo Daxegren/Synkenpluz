@@ -75,6 +75,21 @@ describe('kommandokö', () => {
     expect(again?.lastError).toBe('tillfälligt');
   });
 
+  it('köar om bara döda kommandon, bara för rätt kund, och nollställer försök', async () => {
+    const { repos, clock } = await createTestStack();
+    await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
+    const [a1] = await repos.commands.claimDue(clock.now(), 10);
+    expect(await repos.commands.requeue('T1', a1!.id, clock.now())).toBe(false); // körs just nu
+
+    await repos.commands.markFailed(a1!.id, 'permanent', null, clock.now());
+    expect(await repos.commands.requeue('T2', a1!.id, clock.now())).toBe(false); // fel kund
+    expect(await repos.commands.requeue('T1', a1!.id, clock.now())).toBe(true);
+
+    const [again] = await repos.commands.claimDue(clock.now(), 10);
+    expect(again?.attempts).toBe(1);
+    expect(await repos.commands.requeue('T1', 'finns-inte', clock.now())).toBe(false);
+  });
+
   it('släpper fastnade kommandon', async () => {
     const { repos, clock } = await createTestStack();
     await repos.commands.enqueue('T1', 'P1', [pay('a1')], clock.now());
