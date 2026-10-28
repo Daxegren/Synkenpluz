@@ -1,5 +1,6 @@
 import type { Invoice, LedgerCommand, VoucherLine } from '../domain/types.js';
 import { LedgerError, type LedgerGateway } from '../ports/index.js';
+import type { InvoiceReader } from '../ports/sources.js';
 
 export interface FakeLedgerOptions {
   invoices?: readonly Invoice[];
@@ -15,7 +16,7 @@ type ExecutedCommand = { tenantId: string; command: LedgerCommand; externalId: s
  * Hjälpmetoder (`failNext`, `executed`, `vouchers`) finns för att kunna provocera fram fel
  * och granska resultat i tester.
  */
-export class FakeLedgerGateway implements LedgerGateway {
+export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
   private readonly invoices = new Map<string, Invoice>();
   private readonly byKey = new Map<string, ExecutedCommand>();
   private readonly failures: Array<LedgerError | Error> = [];
@@ -34,6 +35,16 @@ export class FakeLedgerGateway implements LedgerGateway {
 
   invoice(id: string): Invoice | undefined {
     return this.invoices.get(id);
+  }
+
+  /** Lägger till en faktura efter att fakturan "skapats" i affärssystemet, för att simulera sen uppdykning. */
+  addInvoice(invoice: Invoice): void {
+    this.invoices.set(invoice.id, { ...invoice });
+  }
+
+  async findByReferences(_tenantId: string, references: readonly string[]): Promise<Invoice[]> {
+    const wanted = new Set(references.map((r) => r.trim()));
+    return [...this.invoices.values()].filter((i) => wanted.has(i.reference.trim())).map((i) => ({ ...i }));
   }
 
   get executed(): readonly ExecutedCommand[] {
