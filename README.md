@@ -116,6 +116,7 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Dokument | Innehåll |
 | --- | --- |
 | [docs/SPEC.md](docs/SPEC.md) | Teknisk specifikation (utkast, delvis föråldrad) |
+| [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) | Vad som behövs för att gå vidare (API-dokumentation, konton, beslut) och rekommenderad ordning |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Implementerad arkitektur, tillståndsmaskiner, idempotens |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Beslutslogg (ADR) |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Driftinstruktion och avvikelsekoder |
