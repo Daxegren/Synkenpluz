@@ -68,7 +68,7 @@ export async function processPayout(
     }
 
     const enqueued = await repos.commands.enqueue(tenantId, payout.id, result.commands, now);
-    await repos.exceptions.add(tenantId, payout.id, result.exceptions, now);
+    const newExceptions = await repos.exceptions.add(tenantId, payout.id, result.exceptions, now);
 
     // Avvikelser som inte längre uppstår (t.ex. för att faktura nu finns) stängs automatiskt.
     const current = new Set(result.exceptions.map(exceptionKey));
@@ -87,12 +87,18 @@ export async function processPayout(
     // En utbetalning är inte klar om något av dess kommandon permanent misslyckats.
     const hasDead = (await repos.commands.listByPayout(tenantId, payout.id)).some((c) => c.status === 'dead');
     const status: PayoutStatus = result.status === 'complete' && hasDead ? 'partial' : result.status;
+    const previous = await repos.payouts.get(tenantId, payout.id);
     await repos.payouts.record({ tenantId, payoutId: payout.id, status, processedAt: now });
 
-    await repos.audit.append(
-      { tenantId, actor, action: 'payout.processed', details: { ...summarize(payout.id, result), enqueued, autoResolved } },
-      now,
-    );
+    // Delvis avstämda utbetalningar återupptas i varje körcykel. Logga bara när något faktiskt hänt,
+    // annars växer revisionsloggen med en post per cykel och utbetalning utan nytt innehåll.
+    const changed = enqueued > 0 || autoResolved > 0 || newExceptions > 0 || previous?.status !== status;
+    if (changed) {
+      await repos.audit.append(
+        { tenantId, actor, action: 'payout.processed', details: { ...summarize(payout.id, result), enqueued, autoResolved } },
+        now,
+      );
+    }
     return { mode, result, enqueued, autoResolved };
   });
 }

@@ -135,3 +135,16 @@ describe('syncTenant: dry_run och cursor', () => {
     expect(await stack.repos.commands.listByPayout('T1', 'P1')).toHaveLength(2);
   });
 });
+
+describe('revisionslogg vid återupptagning', () => {
+  it('loggar inte när en omkörning inte ändrar något', async () => {
+    const { deps, source, repos } = await setup();
+    source.add(makePayout('P1', [payment('L1', 'REF-A', 12500), payment('L2', 'REF-SAKNAS', 12500)]));
+
+    await syncTenant(deps, 'T1'); // partial: loggas
+    await syncTenant(deps, 'T1'); // återupptas utan förändring: loggas inte
+    await syncTenant(deps, 'T1');
+    const processed = (await repos.audit.list('T1')).filter((a) => a.action === 'payout.processed');
+    expect(processed).toHaveLength(1);
+  });
+});

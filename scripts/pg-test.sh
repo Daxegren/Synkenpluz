@@ -47,4 +47,10 @@ STARTED=1
 
 echo "Postgres $("$PG_BIN/postgres" --version | awk '{print $3}') på 127.0.0.1:$PORT (temporär, katalog $TMP)"
 cd "$ROOT"
-PG_TEST_URL="postgres://postgres@127.0.0.1:$PORT/postgres" npx vitest run test/pg "$@"
+export PG_TEST_URL="postgres://postgres@127.0.0.1:$PORT/postgres"
+# PG_RUN_CMD kör ett eget kommando mot instansen i stället för testerna (används av scripts/smoke.sh).
+if [ -n "${PG_RUN_CMD:-}" ]; then
+  bash -c "$PG_RUN_CMD"
+else
+  npx vitest run test/pg "$@"
+fi

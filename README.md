@@ -98,11 +98,15 @@ Tidigt skede. Funktionsbeskrivningen ovan bygger på informationen på webbplats
 - HTTP-API (`src/api/server.ts`) för att läsa utbetalningar och avvikelser och stänga avvikelser.
 - Kunder, hashade API-nycklar och krypterad lagring av anslutningsuppgifter (`src/security/`, `src/db/tenants.ts`, `src/db/connections.ts`).
 
+- Körbar tjänst (`src/main.ts`): API-server och schemalagd körcykel (synk, avstämning, bokföring) mot riktig Postgres (`src/db/pg.ts`), med graciös nedstängning.
+- Administrationsverktyg (`scripts/admin.ts`): skapa kund, kontoplan, läge, API-nycklar och krypterade kopplingar.
+- Säkerhet (`src/security/`): AES-256-GCM-kryptering av åtkomsttoken bundet till kund och koppling, och HMAC-hashade API-nycklar.
+- Testat mot både PGlite och riktig Postgres 16, inklusive samtidighet med flera parallella arbetare.
+
 **Saknas:**
 
-- Adaptrar mot Mondido och Fortnox. Det finns bara gränssnitt (`src/ports/`) och en simulerad gateway för tester (`src/gateways/fake.ts`). Systemet kan inte bokföra i något riktigt affärssystem.
-- En körbar process: ingen startfil för API:t och ingen schemaläggare som anropar körcykeln.
-- Nyckelhantering mot KMS/secret manager (kryptering finns men bara med testnyckelleverantör), gallring och leverans av larm.
+- Adaptrar mot Mondido och Fortnox. Det finns bara gränssnitt (`src/ports/`) och simulerade implementationer för tester (`src/gateways/`). Tjänsten startar med platshållare som misslyckas tydligt per kund. Den kan inte bokföra i något riktigt affärssystem förrän adaptrarna finns (kräver API-dokumentation och sandbox-konton).
+- Riktig nyckelhantering (KMS), gallring, övervakning och skickade larm. Larmen skapas men skickas ingenstans.
 - Produkt-, lager- och prissynk, order- och fakturaskapande, Spiris och övriga betalleverantörer.
 
 Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -124,13 +128,22 @@ Kräver Node.js 22 eller senare.
 
 ```sh
 npm install
-npm run typecheck   # tsc --noEmit
-npm test            # vitest run
-npm run check       # typkontroll och tester
+npm run check    # typkontroll och tester (PGlite, ingen databas behövs)
+npm run demo     # berättande genomkörning av hela flödet med simulerade system
+npm run test:pg  # tester mot en temporär riktig Postgres (kräver Postgres 16-binärer)
+npm run smoke    # rökprov: temporär Postgres, admin-verktyg, server, API, nedstängning
 ```
 
-CI (`.github/workflows/ci.yml`) kör `npm ci` och `npm run check` vid push och pull request, samt ett separat jobb som kör `test/pg` mot en Postgres 16-container (`PG_TEST_URL`). Lokalt mot egen Postgres:
+Köra tjänsten (se `src/app/config.ts` för alla variabler):
 
 ```sh
-PG_TEST_URL=postgres://postgres:postgres@localhost:5432/synkenpluz_test npx vitest run test/pg --passWithNoTests
+export DATABASE_URL=postgres://...
+export API_KEY_PEPPER=$(openssl rand -hex 32)
+export MASTER_KEYS="k1:$(openssl rand -hex 32)"
+npm run admin -- create-tenant kund1 "Kund AB"
+npm run admin -- set-accounts kund1 1930 1580 6570 2641   # kontonummer är exempel
+npm run admin -- issue-key kund1
+npm start
 ```
+
+CI (`.github/workflows/ci.yml`) kör `npm ci` och `npm run check` vid push och pull request, samt ett separat jobb som kör `test/pg` mot en Postgres 16-container (`PG_TEST_URL`).

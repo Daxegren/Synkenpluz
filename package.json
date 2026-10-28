@@ -9,12 +9,18 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "start": "node --import tsx src/main.ts",
+    "admin": "node --import tsx scripts/admin.ts",
+    "demo": "node --import tsx scripts/demo.ts",
+    "smoke": "bash scripts/smoke.sh",
+    "test:pg": "bash scripts/pg-test.sh"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
     "fast-check": "^4.10.2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   },

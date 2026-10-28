@@ -8,10 +8,10 @@ Det här dokumentet beskriver koden i repot, inte önskemål (läget när det sk
 | --- | --- |
 | Avstämningsmotor (`src/engine/reconcile.ts`) | Implementerad och testad, ren funktion |
 | Tjänstelager (`processPayout`, `syncTenant`) | Implementerat och testat |
-| Databas (`src/db`) | Schema, kommandokö, repositorier. `createPgDb` (`src/db/pg.ts`, `pg`-pool) för riktig Postgres och `createPgliteDb` för test. Postgres-klienten testas bara av CI-jobbet `test/pg` (kräver `PG_TEST_URL`) |
+| Databas (`src/db`) | Schema, kommandokö, repositorier. `createPgDb` (`src/db/pg.ts`, `pg`-pool) för riktig Postgres och `createPgliteDb` för test. Postgres-klienten testas av `test/pg` mot en riktig Postgres (`npm run test:pg`, och CI-jobbet via `PG_TEST_URL`) |
 | Utförare (`src/executor`) | Implementerad som funktioner |
-| Körcykel (`src/app/cycle.ts`) | `runCycle`: `recoverStale`, `syncTenant` per kund, `drain`, och returnerar larmlista (`alerts`). Ingen schemaläggare anropar den, och ingen startfil finns |
-| HTTP-API (`src/api/server.ts`) | Implementerat (läsning + stänga avvikelser). Det finns ingen startfil som lyssnar på en port |
+| Körcykel (`src/app/cycle.ts`) | `runCycle`: `recoverStale`, `syncTenant` per kund, `drain`, och returnerar larmlista (`alerts`). `src/main.ts` anropar den med kedjade timeouts (`CYCLE_INTERVAL_MS`), så att två cykler aldrig överlappar i samma process |
+| HTTP-API (`src/api/server.ts`) | Implementerat (läsning + stänga avvikelser). `src/main.ts` startar servern, kör migrationer och hanterar SIGTERM/SIGINT graciöst (`npm start`) |
 | Kunder och API-nycklar (`src/db/tenants.ts`, `src/security/apiKeys.ts`) | Implementerat: tabellerna `tenant` och `api_key`, nycklar lagras som HMAC med pepper, återkallning och utgångsdatum. Ingen endpoint eller kommandorad för att skapa kunder eller nycklar |
 | Anslutningar och tokenkryptering (`src/db/connections.ts`, `src/security/crypto.ts`) | Implementerat: AES-256-GCM, nyckel-id i blobben, omkryptering. Endast `StaticKeyProvider` (test/dev) finns. Ingen KMS-provider. **Ingen adapter använder det ännu** |
 | Gateway mot affärssystem | **Endast `FakeLedgerGateway`** (`src/gateways/fake.ts`). Ingen Fortnox-adapter. Ingen verifierad kunskap om Fortnox API finns i repot |
@@ -102,7 +102,7 @@ Steg för steg:
 6. **Utför.** Utföraren hämtar förfallna kommandon (`claimDue`), anropar `LedgerGateway.execute` och sparar resultatet (`markSucceeded` eller `markFailed`).
 7. **Följ upp.** Människa läser avvikelser och utbetalningar via API:t, och hanterar döda kommandon via SQL (se RUNBOOK).
 
-`runCycle` (`src/app/cycle.ts`) knyter ihop stegen: släpp fastnade kommandon (`recoverStale`), `syncTenant` för varje kund i `listTenants()`, därefter `drain`. Ett fel för en kund stoppar inte de andra. Den returnerar en `CycleReport` med `alerts`: `warning` för avvisade/misslyckade utbetalningar och misslyckad synk, `critical` när kommandon blivit `dead`, `warning` för `unconfirmed`. Det finns **ingen schemaläggare och inget som skickar larmen**: den som driftsätter måste anropa `runCycle` på schema (kön tål flera samtidiga arbetare) och själv vidarebefordra `alerts`. Kunder som synkas ska vara aktiva och ha kontoplan (`listSyncableTenants`). En kund utan kontoplan, eller avstängd, får ingen konfiguration (`createTenantConfigProvider` returnerar null) och synkas därför inte.
+`runCycle` (`src/app/cycle.ts`) knyter ihop stegen: släpp fastnade kommandon (`recoverStale`), `syncTenant` för varje kund i `listTenants()`, därefter `drain`. Ett fel för en kund stoppar inte de andra. Den returnerar en `CycleReport` med `alerts`: `warning` för avvisade/misslyckade utbetalningar och misslyckad synk, `critical` när kommandon blivit `dead`, `warning` för `unconfirmed`. `src/main.ts` kör `runCycle` på schema och loggar larmen som varningar, men **inget skickar dem vidare** (e-post, pager). Kön tål flera samtidiga arbetare, så flera processer kan köras. Kunder som synkas ska vara aktiva och ha kontoplan (`listSyncableTenants`). En kund utan kontoplan, eller avstängd, får ingen konfiguration (`createTenantConfigProvider` returnerar null) och synkas därför inte.
 
 ## 4. Tillståndsmaskiner
 
