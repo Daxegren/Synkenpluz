@@ -9,7 +9,15 @@ export MASTER_KEYS="k1:$(openssl rand -hex 32)"
 export CYCLE_INTERVAL_MS=0
 export PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
 export HOST=127.0.0.1
-ADMIN="npx tsx scripts/admin.ts"
+if [ "${SMOKE_PROD:-}" = "1" ]; then
+  # Rökprov av det kompilerade produktionsbygget (samma sak som körs i containern).
+  npm run build >/dev/null
+  ADMIN="node dist/scripts/admin.js"
+  SERVER_CMD="node dist/src/main.js"
+else
+  ADMIN="npx tsx scripts/admin.ts"
+  SERVER_CMD="node --import tsx src/main.ts"
+fi
 
 echo "== Administration =="
 $ADMIN create-tenant T1 "Testkund"
@@ -27,7 +35,7 @@ if $ADMIN issue-key T1 30d >/dev/null 2>&1; then echo "FEL: ogiltigt dagsvärde 
 echo "ogiltigt dagsvärde avvisades"
 
 echo "== Server =="
-node --import tsx src/main.ts >"$(dirname "$0")/../.smoke-server.log" 2>&1 &
+$SERVER_CMD >"$(dirname "$0")/../.smoke-server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 for _ in $(seq 1 60); do

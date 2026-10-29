@@ -15,7 +15,18 @@ Börja här. Dokumenten är skrivna på svenska och beskriver koden som den **ä
 | 7 | [API.md](API.md) | använda HTTP-API:t, med curl-exempel |
 | 8 | [DECISIONS.md](DECISIONS.md) | förstå *varför* något är som det är (beslutslogg) |
 | 9 | [LOGG.md](LOGG.md) | se vad som byggdes när, vem/vad som granskade och vad granskningarna hittade |
-| 10 | [SPEC.md](SPEC.md) | läsa den ursprungliga specen (delvis föråldrad, koden gäller) |
+| 10 | [DEPLOY.md](DEPLOY.md) | sätta upp, köra och sätta tjänsten i skarp drift (Docker, kontrolllista, go-live) |
+| 11 | [SPEC.md](SPEC.md) | läsa den ursprungliga specen (delvis föråldrad, koden gäller) |
+
+### Underlag att skicka vidare
+
+De här tre är skrivna för att lämnas till någon annan och besvaras. De är det som tar bort väntetid när API-dokumentation och konton finns.
+
+| Dokument | Till | Innehåll |
+| --- | --- | --- |
+| [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Exakt vilka data vi behöver från Mondidos utbetalningar, formatkrav, 15 frågor och testdata som önskas |
+| [FORTNOX_TESTPLAN.md](FORTNOX_TESTPLAN.md) | Den som har Fortnox-sandboxen | Första dagens provkörning: avgör dubbelräknad bank, idempotens/`verify`, felklassning, rate limits |
+| [BESLUT_REDOVISNING.md](BESLUT_REDOVISNING.md) | Redovisningskonsult | Tio beslut med färdiga exempelverifikat från motorn att godkänna eller ändra |
 
 ## Snabbsvar
 

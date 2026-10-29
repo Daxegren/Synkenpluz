@@ -39,7 +39,10 @@ function decodeKey(value: string, label: string): Buffer {
 }
 
 export function parseEnv(env: Record<string, string | undefined>): AppEnv {
-  const parsed = schema.safeParse(env);
+  // Tomma värden räknas som ej satta. Det är så .env-filer och docker-compose ofta ser ut för valfria
+  // variabler (t.ex. `ALERT_WEBHOOK_URL=`), och en tom sträng ska inte vara ett valideringsfel.
+  const present = Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined && v.trim() !== ''));
+  const parsed = schema.safeParse(present);
   if (!parsed.success) {
     // Bara fältnamn och regler, aldrig värden.
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);

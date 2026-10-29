@@ -119,6 +119,10 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | --- | --- |
 | [docs/INDEX.md](docs/INDEX.md) | Index, läsordning och dokumentationsregeln |
 | [docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md) | Funktionskarta med diagram |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Driftsättning: Docker, kontrolllista inför skarp drift, go-live |
+| [docs/MONDIDO_DATAKONTRAKT.md](docs/MONDIDO_DATAKONTRAKT.md) | Underlag till Mondidos utvecklare: vilka data vi behöver |
+| [docs/FORTNOX_TESTPLAN.md](docs/FORTNOX_TESTPLAN.md) | Testplan för första dagen i Fortnox-sandboxen |
+| [docs/BESLUT_REDOVISNING.md](docs/BESLUT_REDOVISNING.md) | Beslut och exempelverifikat till redovisningskonsult |
 | [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) | Vad som behövs för att gå vidare (API-dokumentation, konton, beslut) och rekommenderad ordning |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Implementerad arkitektur, tillståndsmaskiner, idempotens |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Beslutslogg (ADR) |
@@ -140,6 +144,8 @@ npm run check    # typkontroll och tester (PGlite, ingen databas behövs)
 npm run demo     # berättande genomkörning av hela flödet med simulerade system
 npm run test:pg  # tester mot en temporär riktig Postgres (kräver Postgres 16-binärer)
 npm run smoke    # rökprov: temporär Postgres, admin-verktyg, server, API, nedstängning
+npm run build    # kompilera till dist/  (SMOKE_PROD=1 npm run smoke provar det kompilerade bygget)
+docker compose up --build   # lokal körning med Postgres, se docs/DEPLOY.md
 ```
 
 Köra tjänsten (se `src/app/config.ts` för alla variabler):

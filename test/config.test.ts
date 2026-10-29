@@ -33,6 +33,27 @@ describe('parseEnv', () => {
     expect(env.alertWebhookUrl).toBe('https://hooks.example.com/T/B/X');
   });
 
+  it('räknar tomma värden som ej satta (så som .env.example och docker-compose ser ut)', () => {
+    const env = parseEnv({ ...valid, ALERT_WEBHOOK_URL: '', ALERT_LABEL: '', METRICS_TOKEN: '', PORT: '', CYCLE_INTERVAL_MS: '  ' });
+    expect(env).toMatchObject({ port: 3000, cycleIntervalMs: 60_000 });
+    expect(env.alertWebhookUrl).toBeUndefined();
+    expect(env.metricsToken).toBeUndefined();
+    // Obligatoriska variabler som är tomma är fortfarande fel.
+    expect(() => parseEnv({ ...valid, API_KEY_PEPPER: '' })).toThrow(/API_KEY_PEPPER/);
+  });
+
+  it('klarar .env.example som den står, när bara de obligatoriska hemligheterna fyllts i', async () => {
+    const { readFileSync } = await import('node:fs');
+    const parsed: Record<string, string> = {};
+    for (const line of readFileSync(new URL('../.env.example', import.meta.url), 'utf8').split('\n')) {
+      const m = /^([A-Z_]+)=(.*)$/.exec(line);
+      if (m) parsed[m[1]!] = m[2]!;
+    }
+    parsed.API_KEY_PEPPER = hex('a');
+    parsed.MASTER_KEYS = `k1:${hex('b')}`;
+    expect(() => parseEnv(parsed)).not.toThrow();
+  });
+
   it('stöder flera huvudnycklar där den första är aktuell', () => {
     const env = parseEnv({ ...valid, MASTER_KEYS: `ny:${hex('c')},gammal:${hex('d')}` });
     expect(env.masterKeys.map((k) => k.id)).toEqual(['ny', 'gammal']);

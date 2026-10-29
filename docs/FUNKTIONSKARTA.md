@@ -287,7 +287,8 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | `scripts/pg-test.sh` | Startar temporär riktig Postgres och kör `test/pg` (eller `PG_RUN_CMD`) |
 | `scripts/smoke.sh` | Startar `pg-test.sh` med rökprovet |
 | `scripts/smoke-steps.sh` | Stegen i rökprovet: admin, server, API, nedstängning, hemlighetskontroll |
-| `.github/workflows/ci.yml` | CI: `npm run check`, samt Postgres-jobb mot `test/pg` |
+| `.github/workflows/ci.yml` | CI: `npm run check`, Postgres-jobb mot `test/pg`, och ett jobb som bygger Docker-avbilden |
+| `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `tsconfig.build.json` | Produktionsavbild (kompilerad kod, bara produktionsberoenden, icke-root), lokal körning med Postgres och miljömall. Avbilden är **inte byggd här** (ingen Docker-demon), CI bygger den. Se [DEPLOY.md](DEPLOY.md) |
 
 ## 4. En utbetalnings väg genom systemet
 
@@ -392,6 +393,9 @@ erDiagram
 | `npm run smoke` | Rökprov av hela tjänsten |
 | `npm run demo` | Berättande demo |
 | `npm run admin` | Adminverktyget |
+| `npm run build` | Kompilerar till JavaScript (`dist/`) med `tsconfig.build.json` |
+| `npm run start:prod` | Startar den kompilerade tjänsten (`dist/src/main.js`), samma som containern |
+| `npm run admin:prod` | Adminverktyget kompilerat (`dist/scripts/admin.js`), för containern |
 | `npm start` | Starta tjänsten |
 
 ### Miljövariabler (läses av `parseEnv`)

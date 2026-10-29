@@ -10,6 +10,15 @@ Kör `npm run demo` för en berättande genomkörning med simulerade system. Kö
 
 Det systemet **inte** kan: prata med Mondido eller Fortnox. Allt mot omvärlden går via gränssnitt i `src/ports/` som idag bara har simulerade implementationer (`src/gateways/`). Tjänsten startar med platshållare som misslyckas tydligt per kund.
 
+## Underlag som är färdiga att skicka vidare
+
+| Dokument | Skickas till | Svarar på |
+| --- | --- | --- |
+| [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Rad 1 nedan: vilka data finns och i vilket format |
+| [FORTNOX_TESTPLAN.md](FORTNOX_TESTPLAN.md) | Den som har sandboxen | Rad 2 och riskerna nedan (dubbelräknad bank, idempotens) |
+| [BESLUT_REDOVISNING.md](BESLUT_REDOVISNING.md) | Redovisningskonsult | Rad 4 och 5 nedan samt gallringstider |
+| [DEPLOY.md](DEPLOY.md) | Den som driftsätter | Hur tjänsten körs och sätts i skarp drift |
+
 ## Det jag behöver från dig (blockerar adaptrarna)
 
 | # | Vad | Varför | Vem |

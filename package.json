@@ -14,7 +14,10 @@
     "admin": "node --import tsx scripts/admin.ts",
     "demo": "node --import tsx scripts/demo.ts",
     "smoke": "bash scripts/smoke.sh",
-    "test:pg": "bash scripts/pg-test.sh"
+    "test:pg": "bash scripts/pg-test.sh",
+    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node dist/src/main.js",
+    "admin:prod": "node dist/scripts/admin.js"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

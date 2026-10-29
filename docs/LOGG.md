@@ -80,3 +80,14 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 **Agenter:** HTTP-infrastruktur, API-hårdning och gallring byggdes av tre parallella agenter med disjunkta filer. Alla körde samma modell som huvudsessionen (`claude-sonnet-5-5`, medium effort); det blev ungefär 1,4 miljoner tokens totalt för tio agenter under hela bygget. Beslut att dra ner: inga fler agenter för småsaker, billigare modell och låg effort för mekaniskt arbete, riktade testkörningar, och ny session efter större etapper (huvudkontexten var över 535 000 tokens, vilket är det som driver kostnaden mest).
 
 **Fynd och lärdomar:** agenternas rapporter pekade på att `guard.resolve` och revisionspost inte var atomiska (löst: `guard` ingår nu i `Repositories`), att paginering av förslag och osäkra anrop sker i minnet, och att rate limiter-tillstånd ligger i processminne. Fake-gatewayens definitiva avvisningar markerades `notApplied` så att skyddet kan skilja dem från okänt utfall. Demon byttes till ett 429-liknande fel av samma skäl.
+
+## 2026-10-29: underlag och driftsättning
+
+| Del | Vad |
+| --- | --- |
+| Datakontrakt för Mondido | `docs/MONDIDO_DATAKONTRAKT.md`: fält, regler, 15 frågor, testdata, acceptans via kontraktssviten |
+| Testplan för Fortnox | `docs/FORTNOX_TESTPLAN.md`: tio tester i ordning, hypoteser tydligt märkta som overifierade, resultattabeller, koppling till kodändringar |
+| Beslut till redovisningskonsult | `docs/BESLUT_REDOVISNING.md`: tio beslut, exempelverifikat hämtade direkt från motorn |
+| Driftsättning | `Dockerfile`, `docker-compose.yml`, `.env.example`, `docs/DEPLOY.md`, produktionsbygge (`npm run build`), CI-jobb som bygger avbilden |
+
+**Verifierat:** kompilerat bygge klarar rökprovet (`SMOKE_PROD=1`), och en simulerad produktionsinstallation (`npm ci --omit=dev`, utan utvecklingsberoenden) laddar alla importer och ger ett tydligt konfigurationsfel utan hemligheter. **Inte verifierat:** själva Docker-avbilden och compose-filen, eftersom ingen Docker-demon finns i utvecklingsmiljön. CI-jobbet `docker` bygger den vid nästa push; verifiera lokalt första gången.

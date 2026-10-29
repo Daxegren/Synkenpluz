@@ -54,3 +54,17 @@ jobs:
       - run: npm ci
       # --passWithNoTests: jobbet ska vara grönt även om test/pg ännu inte finns.
       - run: npx vitest run test/pg --passWithNoTests
+
+  # Bygger produktionsavbilden och kontrollerar att den startar och ger ett tydligt konfigurationsfel
+  # utan hemligheter (alltså att alla importer löser sig med bara produktionsberoenden).
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t synkenpluz:ci .
+      - name: Starta utan konfiguration (förväntat fel, inte kraschade importer)
+        run: |
+          set +e
+          out="$(docker run --rm synkenpluz:ci 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "Ogiltig konfiguration"
