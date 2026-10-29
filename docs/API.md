@@ -13,6 +13,10 @@ Dokumentationen följer `src/api/server.ts` (Fastify). Ändras koden gäller kod
 - Ingen TLS i servern. Det förutsätts finnas framför den.
 - Loggning är avstängd i Fastify (`logger: false`) så att `x-api-key` inte hamnar i loggar.
 
+## Webbgränssnitt (`/app`)
+
+`GET /app` (med `/app/app.js`, `/app/lib.js`, `/app/style.css`) levererar ett webbgränssnitt för granskning (katalogen `web/`, se [FUNKTIONSKARTA.md](FUNKTIONSKARTA.md)). Sidorna är öppna och innehåller inga uppgifter, men all data hämtas från `/v1` med en API-nyckel som användaren skriver in. Svaren har strikt `Content-Security-Policy` (inga inline-skript, inga externa resurser, ingen inbäddning i ramar), `nosniff` och `ETag`. Bara de fyra filerna levereras, ingen annan sökväg. Sökvägarna är absoluta (`/app/...`), så en proxy som lägger tjänsten under ett prefix måste skriva om dem. Rate limitern begränsar sidladdningar per IP. Sätts `WEB_DIR` i miljön används den katalogen, annars hittas `web/` automatiskt (i Docker-avbilden ligger den i `/app/web`).
+
 ## Autentisering
 
 Alla endpoints under `/v1` kräver headern `x-api-key`. Nyckeln avgör kund (`tenantId`). Alla läsningar och skrivningar begränsas till den kunden. En resurs som tillhör en annan kund ser ut som att den inte finns (404).

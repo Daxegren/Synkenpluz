@@ -29,6 +29,10 @@ function missing(items: string[], text: string): string[] {
 }
 
 describe('funktionskartan är komplett', () => {
+  it('nämner varje fil i web/ (webbgränssnittet)', () => {
+    expect(missing(walk('web', () => true), map)).toEqual([]);
+  });
+
   it('nämner varje kodfil i src/', () => {
     expect(missing(walk('src', (f) => f.endsWith('.ts')), map)).toEqual([]);
   });

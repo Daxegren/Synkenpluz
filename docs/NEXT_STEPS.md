@@ -47,7 +47,7 @@ Likaså: gatewayens **idempotens**. Den är nu skyddad av `GuardedLedgerGateway`
 
 ## Redan känt och medvetet uppskjutet
 
-- Förslag från dry_run sparas inte och syns inte i API:t. Ett explicit godkännandeflöde saknas.
+- Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor, och ett explicit godkännandeflöde för go-live (att byta läge görs fortfarande med `set-mode` i adminverktyget).
 - Larm skickas via webhook (`ALERT_WEBHOOK_URL`) men inte via e-post eller pager.
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
 - Rate limiting i API:t ligger i processminne och delas inte mellan instanser. Paginering av förslag och osäkra anrop sker i minnet.

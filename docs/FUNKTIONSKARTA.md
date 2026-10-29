@@ -153,6 +153,7 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Stänga avvikelse | `POST /v1/exceptions/:id/resolve`, revisionsloggas atomiskt | `buildServer` | `test/api/`, `test/hardening.test.ts` | ✅ |
 | Köa om dött kommando | `POST /v1/commands/:id/retry`, revisionsloggas atomiskt | `buildServer`, `requeue` | `test/app.test.ts` | ✅ |
 | Administrera kunder | Skapa kund, kontoplan, läge, nycklar, kopplingar via CLI | `scripts/admin.ts` | `scripts/smoke-steps.sh` | ✅ |
+| Webbgränssnitt för granskning | Enkel webbsida på `/app` där en redovisningskonsult eller handläggare loggar in med API-nyckel, granskar förslag och utbetalningar, stänger avvikelser, köar om döda kommandon och avgör osäkra anrop. Svenska, tillgängligt, mobilanpassat, ljust/mörkt läge | `web/`, `src/web/serve.ts` | `test/web.test.ts`, `test/web.e2e.test.ts` (riktig webbläsare) | ✅ |
 | Granska dry_run-förslag | `GET /v1/proposals`, `GET /v1/proposals/:payoutId` och adminkommandot `list-proposals` (utan belopp) | `buildServer`, `summarizeProposal` | `test/api/extended.test.ts`, `test/retention.test.ts` | ✅ |
 | Gallring (GDPR) | Torrkörning och körning av gallring enligt säkra regler. Rör aldrig öppet, dött, pågående, `audit_log` eller `payout` | `planRetention`, `applyRetention` i `src/db/retention.ts`, adminkommandona `retention-plan`/`retention-apply` | `test/retention.test.ts` | ✅ (körs manuellt) |
 | Demo | Berättande genomkörning med simulerade system | `scripts/demo.ts` | körs manuellt (`npm run demo`) | ✅ |
@@ -247,6 +248,17 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- | --- |
 | `src/api/server.ts` | Fastify-server med auth, validering (zod), paginering, enhetliga fel, rate limiting, bodygräns, /ready, /metrics | `buildServer` · *atomically, presentException, presentPayout, presentCommand, parse* |
 | `src/api/rateLimit.ts` | Token bucket per nyckel/IP med städning och tak | `RateLimiter` (take, peek) · `defaultRateLimitConfig` · `resolveRateLimitConfig` |
+
+### `src/web/` och `web/`: webbgränssnittet
+
+| Fil | Ansvar | Funktioner |
+| --- | --- | --- |
+| `src/web/serve.ts` | Levererar `web/` på `/app` med strikt CSP och en allowlist av fyra filer (ingen path traversal) | `registerWebUi` · `resolveWebRoot` · konstant `WEB_CSP` |
+| `web/index.html` | Sidskal: landmärken, hoppa-över-länk, inga inline-skript | |
+| `web/app.js` | Vyer (översikt, förslag, utbetalningar, avvikelser, osäkra anrop), inloggning, anrop mot `/v1`. All text sätts som ren text, aldrig som HTML | |
+| `web/lib.js` | Ren logik: beloppsformat, åldertext, förklaring av alla avvikelsekoder, felmeddelanden, formulärvalidering | `formatAmount`, `ageText`, `describeCommand`, `voucherBalance`, `parseHash`, `apiErrorMessage`, `validateResolve`, `validateGuardResolve` |
+| `web/lib.d.ts` | Typer för `lib.js` så att testerna kan importera den | |
+| `web/style.css` | Utseende: ljust/mörkt, fokusmarkering, mobil | |
 
 ### `src/http/`: infrastruktur för framtida adaptrar
 
@@ -365,6 +377,7 @@ erDiagram
 | Rutt | Gör |
 | --- | --- |
 | `GET /health` | Öppen livstecken |
+| `GET /app` | Webbgränssnittet (även `/app/app.js`, `/app/lib.js`, `/app/style.css`). Öppet, innehåller inga uppgifter, kräver API-nyckel för all data |
 | `GET /v1/exceptions` | Lista avvikelser (`status`, `payoutId`) |
 | `GET /v1/exceptions/:id` | En avvikelse |
 | `POST /v1/exceptions/:id/resolve` | Stäng avvikelse (resolved/dismissed + anteckning). Loggas |
@@ -482,6 +495,8 @@ Tillståndsdiagram och regler: [ARCHITECTURE.md](ARCHITECTURE.md) avsnitt 4.
 | `test/http/errors.test.ts` | Klassningstabellen och Retry-After |
 | `test/http/oauth.test.ts` | OAuth2-tokenhantering |
 | `test/http/rateLimiter.test.ts` | Rate limitern mot leverantör |
+| `test/web.test.ts` | Webbgränssnittet: servering, säkerhetsheaders, allowlist, kodens säkerhetsregler (ingen HTML-injektion, inga externa adresser), och `web/lib.js` logik |
+| `test/web.e2e.test.ts` | Webbgränssnittet i en **riktig webbläsare** mot en riktig server: inloggning, granskning, XSS-försök, stänga avvikelse, köa om, avgöra osäkert anrop, utloggning, mobil, tangentbord, tenant-isolering. Körs bara om Playwright finns (lokalt, inte i CI) |
 | `test/docs.test.ts` | Att den här kartan och övrig dokumentation är komplett |
 
 ## 9. Hitta rätt

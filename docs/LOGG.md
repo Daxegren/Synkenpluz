@@ -91,3 +91,16 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 | Driftsättning | `Dockerfile`, `docker-compose.yml`, `.env.example`, `docs/DEPLOY.md`, produktionsbygge (`npm run build`), CI-jobb som bygger avbilden |
 
 **Verifierat:** kompilerat bygge klarar rökprovet (`SMOKE_PROD=1`), och en simulerad produktionsinstallation (`npm ci --omit=dev`, utan utvecklingsberoenden) laddar alla importer och ger ett tydligt konfigurationsfel utan hemligheter. **Inte verifierat:** själva Docker-avbilden och compose-filen, eftersom ingen Docker-demon finns i utvecklingsmiljön. CI-jobbet `docker` bygger den vid nästa push; verifiera lokalt första gången.
+
+## 2026-10-29: webbgränssnitt för granskning
+
+| Del | Vad |
+| --- | --- |
+| Gränssnittet | `web/` (HTML, CSS, JavaScript utan byggsteg och utan beroenden), levereras på `/app` av `src/web/serve.ts` |
+| Vyer | Översikt, förslag (med verifikat som visar att det balanserar), utbetalningar (köa om), avvikelser (förklaring + stängning med anteckning), osäkra anrop (avgörande med varningar) |
+| Säkerhet | Strikt CSP, allowlist av fyra filer, all text som ren text, nyckel bara i `sessionStorage`, bekräftelsedialoger |
+| Tester | `test/web.test.ts` (servering, kodens säkerhetsregler, logik) och `test/web.e2e.test.ts` (riktig Chromium mot riktig server) |
+
+**Vad webbläsartestet hittade som ingen annan test hade fångat:** ett 401 vid inloggning ritade om formuläret så att felmeddelandet hamnade på ett borttaget element (användaren såg inget fel); webbläsarens egen validering (`required`) blockerade våra tillgängliga felmeddelanden (löst med `novalidate`); nästlade listor och `null` skrevs ut som text (`[object HTMLDivElement]null`, `null` längst ned i listor); och `parseHash` behöll ett id för en okänd sida. Skärmbilder granskades för både skrivbord och mobil.
+
+**Verifierat:** 23 tester för gränssnittet gröna, inklusive ett XSS-försök via en skadlig referens som visas som text och inte körs, att inga skriptfel eller CSP-överträdelser sker, att nyckeln aldrig hamnar i `localStorage` eller cookies, att en annan kunds nyckel inte ser något, mobilbredd utan horisontell scroll och tangentbordsnavigering. Webbläsartestet körs lokalt (kräver Playwright) och hoppas över i CI.

@@ -2,6 +2,20 @@
 
 Status: tidigt skede, inget i drift. Dokumentet skiljer på **implementerat** (finns i koden och verifierat), **planerat** (finns i SPEC men inte i koden) och **kvarstående risker**. `src/security` finns (`apiKeys.ts`, `crypto.ts`) och beskrivs i avsnitt 3.5 och 3.6. Läget gäller koden när dokumentet skrevs (migrationerna 001 till 003).
 
+## Webbgränssnittet (`/app`)
+
+| Hot | Skydd | Rest |
+| --- | --- | --- |
+| **XSS** via text från externa källor (referenser, felmeddelanden från leverantören) | All text sätts som ren text (`textContent`), aldrig som HTML. Ett test (`test/web.test.ts`) underkänner koden om den använder API:er som tolkar text som HTML eller kod. Ett webbläsartest skickar in en skadlig referens och bekräftar att den visas som text och inte körs | Ett nytt kodavsnitt kan bryta regeln: testet fångar de kända API:erna |
+| **XSS-skada om det ändå sker** | Strikt `Content-Security-Policy`: `default-src 'none'`, `script-src 'self'`, ingen inline-kod, inga externa resurser, `connect-src 'self'` | |
+| **Stöld av API-nyckeln** | Nyckeln ligger bara i `sessionStorage` (försvinner när fliken stängs), inte i `localStorage`, cookies eller URL. Skickas bara till `/v1` | En lyckad XSS kan läsa `sessionStorage`. Därför CSP och kortlivade nycklar per person |
+| **CSRF** | Ingen cookie-baserad inloggning: nyckeln skickas i en header som en annan webbplats inte kan sätta | |
+| **Clickjacking** | `frame-ancestors 'none'` | |
+| **Path traversal** vid filservering | Fyra allowlistade filer, ingen sökvägsparameter | |
+| **Mänskliga misstag** (stänga fel avvikelse, avgöra fel osäkert anrop) | Bekräftelsedialoger med varningstext, krav på anteckning, allt revisionsloggas med nyckel-id | Ett felaktigt avgörande av ett osäkert anrop kan ge dubbelbokning eller utebliven bokföring. Det går inte att ångra härifrån |
+
+**Begränsning:** det finns inga användarkonton, roller eller SSO. Alla med en kunds API-nyckel kan allt API:t tillåter för den kunden. Utfärda en nyckel per person med utgångsdatum så att åtkomst kan spåras och återkallas individuellt.
+
 ## 1. Vad som skyddas
 
 - Kunders ekonomidata: utbetalningar, fakturareferenser, belopp, kontoplan, bokföringskommandon.

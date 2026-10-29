@@ -31,6 +31,10 @@ Utan Docker: `npm ci && npm run build && npm run start:prod` (kräver miljövari
 
 Se [`.env.example`](../.env.example) och [FUNKTIONSKARTA.md](FUNKTIONSKARTA.md) avsnitt 6. Obligatoriska: `DATABASE_URL`, `API_KEY_PEPPER`, `MASTER_KEYS`. Appen vägrar starta med ogiltig konfiguration och skriver aldrig ut hemliga värden i felet.
 
+## Webbgränssnittet
+
+Tjänsten levererar granskningsgränssnittet på `/app` från katalogen `web/`. I Docker-avbilden kopieras den till `/app/web`. Saknas katalogen finns gränssnittet helt enkelt inte (API:t fungerar ändå). Eftersom användare skriver in en API-nyckel i webbläsaren är **TLS obligatoriskt** framför tjänsten, och nycklar bör vara kortlivade och per person (`issue-key <kund> 30`). Gränssnittet använder absoluta sökvägar (`/app/...`): lägg inte tjänsten under ett URL-prefix utan att skriva om dem.
+
 ## Kontrolllista inför skarp drift
 
 **Hemligheter**
@@ -44,6 +48,8 @@ Se [`.env.example`](../.env.example) och [FUNKTIONSKARTA.md](FUNKTIONSKARTA.md) 
 - [ ] `trustProxy` aktiverat bakom proxy, annars blir alla anrop samma IP i rate limitern.
 - [ ] Databasen nås bara från appen (ingen publik port). I `docker-compose.yml` är appens port bunden till `127.0.0.1`.
 - [ ] `/metrics` och `/ready` ej öppna mot internet utan skydd.
+- [ ] TLS är på innan någon loggar in i `/app` (nyckeln skickas i en header).
+- [ ] Utfärda en API-nyckel **per person** med utgångsdatum, så att åtkomst kan återkallas individuellt (`revoke-key`) och revisionsloggen visar vilken nyckel som gjorde vad.
 
 **Databas**
 - [ ] Hanterad Postgres 16 med automatisk säkerhetskopiering och **testad återställning**. Utan fungerande återställning finns ingen bokföringsspårbarhet.

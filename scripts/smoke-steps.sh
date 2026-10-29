@@ -46,6 +46,10 @@ done
 echo "health:        $(curl -s http://127.0.0.1:$PORT/health)"
 echo "utan nyckel:   HTTP $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/v1/payouts)"
 echo "med nyckel:    $(curl -s -H "x-api-key: $KEY" http://127.0.0.1:$PORT/v1/payouts)"
+APP_HEADERS="$(curl -s -D - -o /dev/null http://127.0.0.1:$PORT/app)"
+echo "webbgränssnitt: $(echo "$APP_HEADERS" | head -1 | tr -d '\r')"
+echo "$APP_HEADERS" | grep -qi "content-security-policy: default-src 'none'" || { echo "FEL: /app saknar strikt CSP"; exit 1; }
+[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/app/app.js)" = "200" ] || { echo "FEL: /app/app.js levereras inte"; exit 1; }
 echo "fel nyckel:    HTTP $(curl -s -o /dev/null -w '%{http_code}' -H "x-api-key: ${KEY}x" http://127.0.0.1:$PORT/v1/payouts)"
 
 echo "== Nedstängning =="

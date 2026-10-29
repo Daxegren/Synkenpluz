@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { registerWebUi } from '../web/serve.js';
 import type {
   AuditLog,
   Clock,
@@ -59,6 +60,8 @@ export interface ApiDeps {
   bodyLimit?: number;
   /** Sätt true bakom en betrodd proxy så att klientens IP läses ur X-Forwarded-For (annars socketens adress). */
   trustProxy?: boolean;
+  /** Katalog med webbgränssnittet (`web/`). Anges den levereras det på `/app`. Se src/web/serve.ts. */
+  webRoot?: string;
 }
 
 declare module 'fastify' {
@@ -285,6 +288,8 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
   app.setNotFoundHandler((_req, reply) => sendError(reply, 404, 'not_found', 'Resursen finns inte'));
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  if (deps.webRoot) registerWebUi(app, deps.webRoot);
 
   // Beredskap: databasen måste svara. Inga detaljer om orsaken lämnas ut.
   app.get('/ready', async (_request, reply) => {

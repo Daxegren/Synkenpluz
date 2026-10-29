@@ -8,6 +8,7 @@ import { GuardedLedgerGateway, type GuardedOptions } from '../gateways/guarded.j
 import type { LedgerGateway, Clock } from '../ports/index.js';
 import type { InvoiceReader, PayoutSource } from '../ports/sources.js';
 import type { RateLimitConfig } from '../api/rateLimit.js';
+import { resolveWebRoot } from '../web/serve.js';
 import { createDetailedAuthenticator } from '../security/apiKeys.js';
 import { runCycle, silentLogger, type CycleDeps, type CycleReport, type Logger } from './cycle.js';
 import { createAlertDispatcher, type AlertDispatcherOptions } from './notify.js';
@@ -37,6 +38,8 @@ export interface AppConfig {
   rateLimit?: false | Partial<RateLimitConfig>;
   /** Sätt true bakom en proxy så att klientens IP läses ur X-Forwarded-For. */
   trustProxy?: boolean;
+  /** Webbgränssnittet för granskning på `/app`. På som standard om `web/` hittas, `false` stänger av. */
+  webUi?: false;
 }
 
 /**
@@ -51,6 +54,7 @@ export function createApp(config: AppConfig) {
   const apiKeys = createApiKeyRepository(db);
   const authenticateDetailed = createDetailedAuthenticator({ store: apiKeys, pepper: config.apiKeyPepper, clock });
 
+  const webRoot = config.webUi === false ? null : resolveWebRoot();
   const guardOptions = config.guard === false ? null : (config.guard ?? {});
   const gateway: LedgerGateway = guardOptions
     ? new GuardedLedgerGateway(config.adapters.gateway, repos.guard, {
@@ -79,6 +83,7 @@ export function createApp(config: AppConfig) {
     ...(config.metricsToken ? { metricsToken: config.metricsToken } : {}),
     ...(config.rateLimit !== undefined ? { rateLimit: config.rateLimit } : {}),
     ...(config.trustProxy !== undefined ? { trustProxy: config.trustProxy } : {}),
+    ...(webRoot ? { webRoot } : {}),
   });
 
   const cycleDeps: CycleDeps = {

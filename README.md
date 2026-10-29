@@ -134,6 +134,17 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Dokumentationsregel:** allt som byggs dokumenteras i samma ändring. `npm run check` underkänner bygget om en kodfil, exporterad funktion, API-rutt, avvikelsekod, tabell, skript, adminkommando, miljövariabel eller testfil saknas i dokumentationen (`test/docs.test.ts`). Vad som ska uppdateras när står i [docs/INDEX.md](docs/INDEX.md).
 
+## Webbgränssnitt för granskning
+
+Tjänsten levererar en enkel webbsida på **`/app`** (t.ex. `http://localhost:3000/app`). Där loggar en redovisningskonsult eller handläggare in med en API-nyckel och kan:
+
+- granska **förslag** (vad som skulle bokföras i testläge, med verifikat som visar att det balanserar),
+- se **utbetalningar** och köa om kommandon som misslyckats,
+- hantera **avvikelser** med förklaring av varje kod och en anteckning vid stängning,
+- avgöra **osäkra anrop** (utfallet av ett bokföringsanrop är okänt) med tydliga varningar.
+
+Allt är på svenska, fungerar på mobil och med tangentbord, och har ljust och mörkt läge. Gränssnittet gör inget API:t inte redan tillåter. Se [docs/API.md](docs/API.md) och [docs/SECURITY.md](docs/SECURITY.md) för hur det skyddas. Skapa en nyckel per person med `npm run admin -- issue-key <kund> 30` (giltig 30 dagar).
+
 ## Utveckling
 
 Kräver Node.js 22 eller senare.
