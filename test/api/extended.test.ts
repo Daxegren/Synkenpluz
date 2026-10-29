@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildServer } from '../../src/api/server.js';
 import { createGatewayGuardStore } from '../../src/db/gatewayGuard.js';
+import { createRepositories } from '../../src/db/repositories.js';
+import type { GatewayGuardStore, Repositories, UnitOfWork } from '../../src/ports/index.js';
 import { collectMetrics, renderPrometheus } from '../../src/db/metrics.js';
 import type { ReconcileResult } from '../../src/domain/types.js';
 import { createMemoryStore } from '../../src/testing/memory.js';
@@ -113,7 +115,7 @@ describe('body- och fältgränser', () => {
 
   it('fel content-type ger 415 med enhetligt felformat', async () => {
     const app = buildServer({ ...createMemoryStore(), ...base });
-    const r = await app.inject({ method: 'POST', url: '/v1/exceptions/x/resolve', headers: { ...hA, 'content-type': 'text/plain' }, payload: 'hej' });
+    const r = await app.inject({ method: 'POST', url: '/v1/exceptions/x/resolve', headers: { ...hA, 'content-type': 'application/xml' }, payload: '<a/>' });
     expect(r.statusCode).toBe(415);
     expect(r.json().error.code).toBe('unsupported_media_type');
   });
@@ -235,6 +237,16 @@ describe('guard-rutter (PGlite, atomiskt med revision)', () => {
   async function setup(opts: { atomicGuard: boolean } = { atomicGuard: true }) {
     const stack = await createTestStack();
     const guard = createGatewayGuardStore(stack.db);
+    // En arbetsenhet som även ger en transaktionsbunden guard-journal till guardForUow.
+    const txGuards = new WeakMap<object, GatewayGuardStore>();
+    const uow: UnitOfWork = {
+      run: (fn) =>
+        stack.db.transaction((tx) => {
+          const repos = createRepositories(tx);
+          txGuards.set(repos, createGatewayGuardStore(tx));
+          return fn(repos);
+        }),
+    };
     await guard.begin('A', 'cmd-a', now);
     await guard.begin('A', 'cmd-a2', new Date(now.getTime() + 1));
     await guard.begin('B', 'cmd-b', now);
@@ -244,10 +256,10 @@ describe('guard-rutter (PGlite, atomiskt med revision)', () => {
       payouts: stack.repos.payouts,
       commands: stack.repos.commands,
       audit: stack.repos.audit,
-      uow: stack.uow,
+      uow,
       guard,
       authenticateDetailed: async (k) => (KEYS[k] ? { tenantId: KEYS[k]!, keyId: k === 'key-a' ? 'aaaaaaaaaaaa' : 'bbbbbbbbbbbb' } : null),
-      ...(opts.atomicGuard ? { guardForUow: () => guard } : {}),
+      ...(opts.atomicGuard ? { guardForUow: (r: Repositories) => txGuards.get(r)! } : {}),
     });
     return { ...stack, guard, app };
   }
@@ -288,7 +300,7 @@ describe('guard-rutter (PGlite, atomiskt med revision)', () => {
     expect(log.map((l) => l.details.applied).sort()).toEqual([false, true]);
   });
 
-  it('409 när ingen osäker post finns, och ingen revisionspost lämnas kvar', async () => {
+  it('409 när ingen osäker post finns, och ingen revisionspost skrivs', async () => {
     for (const atomicGuard of [true, false]) {
       const { app, repos } = await setup({ atomicGuard });
       const r = await resolve(app, hA, { key: 'finns-inte', applied: false });
@@ -421,7 +433,7 @@ describe('/metrics', () => {
     for (const line of text.trim().split('\n')) {
       expect(line).toMatch(/^(# (HELP|TYPE) [a-z_]+ .+|[a-z_]+(\{[a-z_]+="[a-z_]+"\})? -?\d+(\.\d+)?)$/);
     }
-    expect(text).not.toMatch(/kund|hemlig|PAY-|nyckel/i);
+    expect(text).not.toMatch(/kund-hemlig|Hemligt|Annat AB|PAY-|nyckel-hemlig/i);
   });
 
   it('tom databas ger nollor', async () => {

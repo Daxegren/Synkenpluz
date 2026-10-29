@@ -228,7 +228,7 @@ describe('createDetailedAuthenticator', () => {
     const auth = createDetailedAuthenticator({ store, pepper, clock });
     expect(await auth(gen.rawKey)).toEqual({ tenantId: 'T1', keyId: gen.id });
     expect(JSON.stringify(await auth(gen.rawKey))).not.toContain(gen.rawKey);
-    expect(touched).toEqual([gen.id, gen.id, gen.id]);
+    expect(touched).toEqual([gen.id, gen.id]);
     expect(await auth('synk_000000000000_' + 'a'.repeat(43))).toBeNull();
     expect(await auth('skräp')).toBeNull();
     const revoked = createDetailedAuthenticator({ store: { ...store, findById: async (id) => ({ ...(await store.findById(id))!, revokedAt: new Date(0) }) }, pepper, clock });

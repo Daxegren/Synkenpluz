@@ -42,9 +42,9 @@ export interface ApiDeps {
   /** Journal över gateway-anrop med okänt utfall. Saknas den finns inte /v1/guard-rutterna (404). */
   guard?: GatewayGuardStore;
   /**
-   * Ger en variant av `guard` som skriver i samma transaktion som `repos` (uow.run). Med den blir
-   * guard.resolve + revisionspost helt atomiskt. Utan den görs revisionsposten först i transaktionen och
-   * guard.resolve därefter, och revisionsposten rullas tillbaka om ingen osäker post fanns.
+   * Ger en variant av `guard` som skriver i samma transaktion som `repos` (uow.run). Med den (och `uow`)
+   * blir guard.resolve + revisionspost helt atomiskt. Utan den görs guard.resolve först och revisionsposten
+   * direkt efter (inte atomiskt: misslyckas loggningen är avgörandet ändå sparat).
    */
   guardForUow?: (repos: Repositories) => GatewayGuardStore;
   /** Kontrollerar att databasen svarar (kasta vid fel). Saknas den svarar /ready alltid 200. */
@@ -221,8 +221,6 @@ const sha256 = (v: string): Buffer => createHash('sha256').update(v, 'utf8').dig
 function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(sha256(a), sha256(b));
 }
-
-class NotInDoubt extends Error {}
 
 type Repos = { exceptions: ExceptionRepository; commands: CommandRepository; audit: AuditLog | undefined };
 
@@ -478,24 +476,16 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
 
         let ok: boolean;
         if (deps.uow && deps.guardForUow) {
+          // Helt atomiskt: avgörandet och revisionsposten skrivs i samma transaktion.
           const forUow = deps.guardForUow;
           ok = await deps.uow.run(async (r) => {
             if (!(await forUow(r).resolve(tenantId, body.key, outcome, now))) return false;
             await r.audit.append(entry, now);
             return true;
           });
-        } else if (deps.uow) {
-          try {
-            await deps.uow.run(async (r) => {
-              await r.audit.append(entry, now);
-              if (!(await guard.resolve(tenantId, body.key, outcome, now))) throw new NotInDoubt();
-            });
-            ok = true;
-          } catch (e) {
-            if (!(e instanceof NotInDoubt)) throw e;
-            ok = false;
-          }
         } else {
+          // Utan guardForUow går guard-journalen inte att få med i transaktionen (en transaktion på en enda
+          // anslutning skulle dessutom låsa sig). Avgörandet görs först, revisionsposten direkt efter.
           ok = await guard.resolve(tenantId, body.key, outcome, now);
           if (ok) await deps.audit?.append(entry, now);
         }
