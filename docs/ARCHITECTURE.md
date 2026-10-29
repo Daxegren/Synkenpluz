@@ -1,6 +1,6 @@
 # Arkitektur: så som den är implementerad
 
-Det här dokumentet beskriver koden i repot, inte önskemål (läget när det skrevs, migrationerna 001 till 003). Där `docs/SPEC.md` och koden skiljer sig gäller koden, och skillnaden är utpekad i avsnitt 10. Se även [DECISIONS.md](DECISIONS.md), [RUNBOOK.md](RUNBOOK.md), [SECURITY.md](SECURITY.md) och [API.md](API.md).
+Det här dokumentet beskriver koden i repot, inte önskemål (migrationerna 001 till 004). En översikt över alla delar finns i [FUNKTIONSKARTA.md](FUNKTIONSKARTA.md). Där `docs/SPEC.md` och koden skiljer sig gäller koden, och skillnaden är utpekad i avsnitt 10. Se även [DECISIONS.md](DECISIONS.md), [RUNBOOK.md](RUNBOOK.md), [SECURITY.md](SECURITY.md) och [API.md](API.md).
 
 ## 1. Ärlig statusbild
 
@@ -12,12 +12,13 @@ Det här dokumentet beskriver koden i repot, inte önskemål (läget när det sk
 | Utförare (`src/executor`) | Implementerad som funktioner |
 | Körcykel (`src/app/cycle.ts`) | `runCycle`: `recoverStale`, `syncTenant` per kund, `drain`, och returnerar larmlista (`alerts`). `src/main.ts` anropar den med kedjade timeouts (`CYCLE_INTERVAL_MS`), så att två cykler aldrig överlappar i samma process |
 | HTTP-API (`src/api/server.ts`) | Implementerat (läsning + stänga avvikelser). `src/main.ts` startar servern, kör migrationer och hanterar SIGTERM/SIGINT graciöst (`npm start`) |
-| Kunder och API-nycklar (`src/db/tenants.ts`, `src/security/apiKeys.ts`) | Implementerat: tabellerna `tenant` och `api_key`, nycklar lagras som HMAC med pepper, återkallning och utgångsdatum. Ingen endpoint eller kommandorad för att skapa kunder eller nycklar |
-| Anslutningar och tokenkryptering (`src/db/connections.ts`, `src/security/crypto.ts`) | Implementerat: AES-256-GCM, nyckel-id i blobben, omkryptering. Endast `StaticKeyProvider` (test/dev) finns. Ingen KMS-provider. **Ingen adapter använder det ännu** |
+| Kunder och API-nycklar (`src/db/tenants.ts`, `src/security/apiKeys.ts`) | Implementerat: tabellerna `tenant` och `api_key`, nycklar lagras som HMAC med pepper, återkallning och utgångsdatum. Kunder och nycklar skapas med adminverktyget (`npm run admin`), det finns ingen endpoint för det |
+| Anslutningar och tokenkryptering (`src/db/connections.ts`, `src/security/crypto.ts`) | Implementerat: AES-256-GCM, nyckel-id i blobben, omkryptering. Endast `StaticKeyProvider` (test/dev) finns. Ingen KMS-provider. `npm run admin -- set-connection` sparar uppgifter krypterat, men **ingen adapter läser dem ännu** |
 | Gateway mot affärssystem | **Endast `FakeLedgerGateway`** (`src/gateways/fake.ts`). Ingen Fortnox-adapter. Ingen verifierad kunskap om Fortnox API finns i repot |
 | Källa för utbetalningar (`PayoutSource`) | **Endast ett gränssnitt** (`src/ports/sources.ts`). Ingen Mondido-adapter |
 | Fakturaläsning (`InvoiceReader`) | **Endast ett gränssnitt** |
-| Schemaläggning (cron, loop), KMS-nyckelleverantör, daglig kontrollsumma | **Finns inte**. `runCycle` returnerar larm men skickar dem ingenstans |
+| Schemaläggning | `src/main.ts` kör `runCycle` med kedjade timeouts |
+| KMS-nyckelleverantör, daglig kontrollsumma, skickade larm | **Finns inte**. `runCycle` returnerar larm och `main.ts` loggar dem, men inget skickar dem vidare |
 
 Allt som körs idag är alltså kärnlogik, databasschema och simulerade ytterkanter. Inga pengar eller verifikat kan flyttas i något riktigt system.
 

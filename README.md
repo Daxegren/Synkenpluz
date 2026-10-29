@@ -113,15 +113,22 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Dokumentation
 
+**Börja med [docs/INDEX.md](docs/INDEX.md)** (läsordning och snabbsvar) och **[docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md)** (karta över allt som finns: funktioner, filer, diagram, tabeller, rutter, koder, tester, och vad som är simulerat eller saknas).
+
 | Dokument | Innehåll |
 | --- | --- |
-| [docs/SPEC.md](docs/SPEC.md) | Teknisk specifikation (utkast, delvis föråldrad) |
+| [docs/INDEX.md](docs/INDEX.md) | Index, läsordning och dokumentationsregeln |
+| [docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md) | Funktionskarta med diagram |
 | [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) | Vad som behövs för att gå vidare (API-dokumentation, konton, beslut) och rekommenderad ordning |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Implementerad arkitektur, tillståndsmaskiner, idempotens |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Beslutslogg (ADR) |
+| [docs/LOGG.md](docs/LOGG.md) | Byggloggen: vad som byggdes när och vad granskningarna hittade |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Driftinstruktion och avvikelsekoder |
 | [docs/SECURITY.md](docs/SECURITY.md) | Hotmodell, skydd, GDPR-checklista, kvarstående risker |
 | [docs/API.md](docs/API.md) | HTTP-API med exempel |
+| [docs/SPEC.md](docs/SPEC.md) | Ursprunglig teknisk specifikation (delvis föråldrad) |
+
+**Dokumentationsregel:** allt som byggs dokumenteras i samma ändring. `npm run check` underkänner bygget om en kodfil, exporterad funktion, API-rutt, avvikelsekod, tabell, skript, adminkommando, miljövariabel eller testfil saknas i dokumentationen (`test/docs.test.ts`). Vad som ska uppdateras när står i [docs/INDEX.md](docs/INDEX.md).
 
 ## Utveckling
 
