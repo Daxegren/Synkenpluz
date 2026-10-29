@@ -345,10 +345,44 @@ Rutin:
 
 **Kräver alltid mänskligt beslut:** att bokföra eller korrigera i kundens affärssystem, hur avvikelser i belopp/valuta/moms behandlas, om ett dött kommando ska köras igen/markeras klart/tas bort, byte av kund från dry_run till live, kundkommunikation, och kontakt med partners.
 
-## 10. Kända luckor som påverkar driften
+## 10. Osäkert utfall: ett anrop vars resultat vi inte vet
 
-- Larmen från `runCycle` skickas ingenstans. Allt i avsnitt 1 är manuellt tills driftsättningen kopplat in dem.
+**Vad det är:** skyddsgatewayen (`GuardedLedgerGateway`) skickar aldrig om ett kommando när det är okänt om affärssystemet tog emot det första gången (timeout, avbruten anslutning, 5xx, okänt fel). Kommandot blir `dead` med texten "Utfallet av ett tidigare försök är okänt" och utbetalningen `partial`. Larmet är kritiskt. Detta är **avsiktligt**: hellre ett kommando som väntar på en människa än en bokföring som görs två gånger.
+
+**Gör så här (kräver mänskligt beslut, BESLUT: bokföringsansvarig):**
+
+1. Lista osäkra anrop: `GET /v1/guard/in-doubt`, eller `npm run admin -- list-in-doubt [kund]`. Nyckeln är ett internt id som innehåller utbetalnings- och rad-id.
+2. **Kontrollera i affärssystemet** om bokföringen finns (inbetalning på fakturan, kreditering eller verifikat för utbetalningen). Gå på belopp, faktura och datum.
+3. Avgör:
+   - **Det utfördes:** `POST /v1/guard/resolve {"key": "...", "applied": true, "externalId": "<id i affärssystemet>"}` eller `npm run admin -- resolve-in-doubt <kund> <nyckel> applied <externalId>`.
+   - **Det utfördes inte:** `{"applied": false}` / `... not-applied`.
+4. Köa om det döda kommandot: `POST /v1/commands/:id/retry`. Utfört ger det verifierade svaret utan ny bokföring, ej utfört skickas det på riktigt.
+5. Åtgärden revisionsloggas (`guard.resolved`, `command.requeued`) utan externt id och fritext.
+
+**Gissa aldrig.** Ett felaktigt "ej utfört" ger dubbelbokning, ett felaktigt "utfört" ger en inbetalning som aldrig bokförs. Är du osäker: lämna det och eskalera.
+
+## 11. Gallring (GDPR)
+
+Körs manuellt. **Torrkör alltid först.**
+
+```sh
+npm run admin -- retention-plan                 # visar bara vad som skulle tas bort
+npm run admin -- retention-apply --yes          # utför (kräver --yes)
+npm run admin -- retention-plan --succeeded-days 800   # egna gränser (minst 30 dagar för bokföringsspår)
+```
+
+**Regler (se `src/db/retention.ts`):** ett kommando gallras bara om *hela* dess utbetalning är klar (alla kommandon `succeeded`, `payout` är `complete`, ingen öppen avvikelse) och äldre än gränsen. Öppna avvikelser, `failed`/`dead`/`in_progress`-kommandon, osäkra anrop (`started`), `payout`-rader och `audit_log` rörs aldrig. Förslag (dry_run) och klara guard-poster gallras efter egen gräns. Standard: 400 dagar. **BESLUT:** gränsvärdena ska stämmas av med en redovisningskonsult (bokföringslagen, normalt sju år för räkenskapsinformation) innan de används skarpt. Varje körning skriver `retention.applied` (bara antal och policy).
+
+## 12. Mätvärden och larm
+
+- `GET /metrics` (Prometheus, kräver `METRICS_TOKEN`): köns djup, döda kommandon, äldsta väntande kommando, öppna avvikelser, osäkra anrop. Bra larmvillkor: döda kommandon > 0, osäkra anrop > 0, äldsta väntande kommando > 30 min.
+- `GET /ready` för lastbalanserare och övervakning.
+- Larm från körcykeln går till `ALERT_WEBHOOK_URL` (Slack-kompatibel). Kritiskt upprepas varje timme så länge något är dött.
+
+## 13. Kända luckor som påverkar driften
+
+- Larmen från `runCycle` skickas bara om `ALERT_WEBHOOK_URL` är satt (Slack-kompatibel webhook, dämpad: kritiskt var timme, varning var sjätte). Annars loggas de bara.
 - Ingen funktion för att markera en rad som manuellt hanterad. Därmed kan verifikat och `complete`-status inte nås för en utbetalning där en rad löstes utanför systemet.
-- Ingen funktion för att återuppta dött kommando. Allt sker via SQL.
+- Dött kommando återupptas via `POST /v1/commands/:id/retry`. SQL behövs bara om API:t inte är tillgängligt.
 - Ingen process eller schemaläggare som anropar `runCycle` levereras.
 - Det finns inga verktyg för att skapa kunder, nycklar eller anslutningar. Det görs med repositorierna (`createTenantRepository`, `createApiKeyRepository`, `createConnectionRepository`) i egen kod. Återkalla en nyckel: `revoke(tenantId, id, now)`. Stäng av en kund: `setStatus(id, 'suspended')` (nycklar och synk slutar då fungera).

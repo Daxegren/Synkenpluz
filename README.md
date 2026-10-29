@@ -106,7 +106,7 @@ Tidigt skede. Funktionsbeskrivningen ovan bygger på informationen på webbplats
 **Saknas:**
 
 - Adaptrar mot Mondido och Fortnox. Det finns bara gränssnitt (`src/ports/`) och simulerade implementationer för tester (`src/gateways/`). Tjänsten startar med platshållare som misslyckas tydligt per kund. Den kan inte bokföra i något riktigt affärssystem förrän adaptrarna finns (kräver API-dokumentation och sandbox-konton).
-- Riktig nyckelhantering (KMS), gallring, övervakning och skickade larm. Larmen skapas men skickas ingenstans.
+- Riktig nyckelhantering (KMS) och larm via e-post/pager. Larm skickas via webhook om `ALERT_WEBHOOK_URL` är satt.
 - Produkt-, lager- och prissynk, order- och fakturaskapande, Spiris och övriga betalleverantörer.
 
 Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -74,7 +74,7 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
       case 'register_invoice_payment': {
         const invoice = this.require(command.invoiceId);
         if (invoice.status !== 'open' || invoice.balance !== command.amount) {
-          throw new LedgerError(`Faktura ${invoice.id} kan inte betalas med ${command.amount}`, false);
+          throw new LedgerError(`Faktura ${invoice.id} kan inte betalas med ${command.amount}`, false, undefined, true);
         }
         invoice.balance = 0;
         invoice.status = 'paid';
@@ -83,7 +83,7 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
       case 'credit_invoice': {
         const invoice = this.require(command.invoiceId);
         if (invoice.status !== 'paid' || invoice.creditedTotal + command.amount > invoice.total) {
-          throw new LedgerError(`Faktura ${invoice.id} kan inte krediteras med ${command.amount}`, false);
+          throw new LedgerError(`Faktura ${invoice.id} kan inte krediteras med ${command.amount}`, false, undefined, true);
         }
         invoice.creditedTotal += command.amount;
         invoice.creditedVatTotal += command.vat;
@@ -92,7 +92,7 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
       case 'post_voucher': {
         const debit = command.lines.reduce((s, l) => s + l.debit, 0);
         const credit = command.lines.reduce((s, l) => s + l.credit, 0);
-        if (debit !== credit) throw new LedgerError('Verifikatet balanserar inte', false);
+        if (debit !== credit) throw new LedgerError('Verifikatet balanserar inte', false, undefined, true);
         break;
       }
     }
@@ -106,7 +106,7 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
 
   private require(invoiceId: string): Invoice {
     const invoice = this.invoices.get(invoiceId);
-    if (!invoice) throw new LedgerError(`Faktura ${invoiceId} finns inte`, false);
+    if (!invoice) throw new LedgerError(`Faktura ${invoiceId} finns inte`, false, undefined, true);
     return invoice;
   }
 }

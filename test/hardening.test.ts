@@ -56,7 +56,7 @@ describe('dött kommando efter klar utbetalning', () => {
     await setTenantAccounts(db, 'T1', accounts);
     await app.tenants.setMode('T1', 'live');
     source.add(makePayout('P1', [payment('L1', 'REF-A', 12500)]));
-    ledger.failNext(new LedgerError('faktura spärrad', false));
+    ledger.failNext(new LedgerError('faktura spärrad', false, undefined, true));
 
     const first = await app.runCycle();
     expect(first.alerts.some((a) => a.severity === 'critical')).toBe(true);

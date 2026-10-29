@@ -25,7 +25,7 @@ Det systemet **inte** kan: prata med Mondido eller Fortnox. Allt mot omvärlden 
 
 Verifikatet som motorn bygger **krediterar clearingkontot** för betalningarna. Om Fortnox själv bokför clearing/bank när man registrerar en inbetalning på en faktura kan banken bli **dubbelräknad**. Det går inte att avgöra utan att provköra mot sandboxen. Det ska göras före allt annat i Fortnox-adaptern, för det kan ändra vad `post_voucher` ska innehålla (eller om motorn bara ska bokföra avgifterna).
 
-Likaså: gatewayens **idempotens** (kravet i `LedgerGateway`) är bara bevisad för den simulerade implementationen. Mot Fortnox måste adaptern kunna se om ett kommando med viss nyckel redan utförts, till exempel genom att skriva nyckeln i ett referensfält och slå upp den före varje skrivning. Utan det kan en krasch mitt i ett kommando ge dubbelbokning. Detta är den enskilt viktigaste egenskapen att få rätt.
+Likaså: gatewayens **idempotens**. Den är nu skyddad av `GuardedLedgerGateway`, som är på som standard och som journalför varje anrop så att ett kommando aldrig skickas om när utfallet är okänt. Det fungerar även om Fortnox saknar egen idempotens, och är bevisat mot ett simulerat affärssystem utan idempotens (`test/guarded.test.ts`, `test/guard-app.test.ts`). Kvarstår att den riktiga adaptern **klassar sina fel rätt** (`notApplied: true` bara när det är säkert att inget utfördes, annars okänt) och helst får en `verify`-hook (kan Fortnox söka på en referens vi skriver dit?). Utan `verify` kräver varje osäkert utfall att en människa kontrollerar i Fortnox.
 
 ## Rekommenderad ordning
 
@@ -39,9 +39,10 @@ Likaså: gatewayens **idempotens** (kravet i `LedgerGateway`) är bara bevisad f
 ## Redan känt och medvetet uppskjutet
 
 - Förslag från dry_run sparas inte och syns inte i API:t. Ett explicit godkännandeflöde saknas.
-- Larm skapas av `runCycle` men skickas ingenstans (e-post/pager).
+- Larm skickas via webhook (`ALERT_WEBHOOK_URL`) men inte via e-post eller pager.
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
-- Ingen rate limiting på API:t, ingen paginering på listor.
+- Rate limiting i API:t ligger i processminne och delas inte mellan instanser. Paginering av förslag och osäkra anrop sker i minnet.
+- Gallring körs bara manuellt och gränsvärdena är inte avstämda med en redovisningskonsult.
 - `ledger_command`, `reconcile_exception`, `payout` och `audit_log` saknar främmande nyckel mot `tenant`.
 - Produkt-, lager- och prissynk samt order- och fakturaskapande (det Synka+ gör utöver avstämning) är inte påbörjat.
 

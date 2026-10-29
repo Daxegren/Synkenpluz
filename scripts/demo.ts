@@ -66,7 +66,7 @@ async function main() {
   console.log(`   Utbetalning UTB-1: ${rader.length} rader, ${kr(netto)} till banken efter avgifter`);
 
   rubrik('2. Körcykel: synka, avstäm, bokför');
-  affärssystem.failNext(new LedgerError('Tillfälligt avbrott hos affärssystemet', true));
+  affärssystem.failNext(new LedgerError('Affärssystemet var överbelastat (429), inget utfördes', true, 1000, true));
   let rapport = await app.runCycle();
   const s = rapport.tenants[0]!.summary!;
   console.log(`   Hämtade ${s.fetched}, helt avstämda ${s.complete}, delvis ${s.partial}, avvisade ${s.rejected}`);

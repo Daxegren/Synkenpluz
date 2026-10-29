@@ -130,3 +130,21 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 - Kopplingar som inte är aktiva lämnar inte ut uppgifter.
 
 **Kvarstående (se NEXT_STEPS och SECURITY):** gateway-idempotens mot riktiga affärssystem, paginering och rate limiting i API:t, `actor` utan nyckel-id, främmande nycklar mot `tenant`, rättvisa mellan kunder vid långsam gateway.
+
+## ADR-011: Skyddsgateway i stället för att lita på affärssystemets idempotens
+
+**Bakgrund:** utföraren ger minst-en-gång. Det enda som skyddade mot dubbelbokning var att gatewayen själv var idempotent på nyckeln, vilket vi inte kan veta om Fortnox. Det är den allvarligaste risken i systemet (dubbla inbetalningar i kunders bokföring).
+
+**Beslut:** varje riktig gateway körs bakom `GuardedLedgerGateway`, **på som standard**. Journal (`gateway_guard`) skrivs före anropet ("påbörjad") och efter ("klar"). Säkert avvisade anrop (`LedgerError.notApplied`) släpper nyckeln. Okänt utfall skickas **aldrig** om automatiskt: det avgörs via `verify` om adaptern har en, annars av en människa. Ett anrop som startade för under 5 minuter sedan räknas som pågående (tillfälligt fel).
+
+**Alternativ:** (1) kräva idempotens av varje adapter, vilket vi inte kan bevisa mot Fortnox och som varje adapter skulle få fel på olika sätt. (2) Alltid skicka om vid okänt utfall, vilket ger dubbelbokning. (3) Aldrig skicka om vid fel överhuvudtaget, vilket ger för många manuella ärenden.
+
+**Konsekvens:** säkert men ger manuellt arbete för varje osäkert utfall tills adaptern får en `verify`. Kräver att adaptrar klassar fel rätt (`notApplied` bara när det är säkert), vilket `src/http/errors.ts` gör en gång för alla HTTP-adaptrar. Sviterna i `test/contracts/` bevisar kraven för nya adaptrar.
+
+## ADR-012: dry_run sparar förslag
+
+**Beslut:** dry_run sparar senaste förslaget per utbetalning (`dry_run_proposal`), synligt via API och CLI, och tas bort när utbetalningen bokförs live. Inga kommandon köas och ingen revisionspost skrivs. **Skäl:** kunden och deras redovisningskonsult måste kunna granska vad som SKULLE bokföras innan go-live. **Konsekvens:** förslag innehåller belopp, så de ligger i en egen tabell (inte i `audit_log`) och gallras efter egen gräns.
+
+## ADR-013: Gallring med konservativa regler, manuell körning
+
+**Beslut:** gallring (`src/db/retention.ts`) raderar bara klara, gamla utbetalningars kommandon samt avslutade avvikelser, förslag och klara guard-poster. Aldrig öppet, dött, pågående, osäkert, `audit_log` eller `payout`. Torrkörning först, `--yes` krävs. **Skäl:** bokföringslagen kräver långa lagringstider och en felaktig radering går inte att ångra. **Kvarstår:** gränsvärden ska fastställas med en redovisningskonsult, och körningen är inte schemalagd.

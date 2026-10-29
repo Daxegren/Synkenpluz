@@ -179,6 +179,7 @@ export interface Repositories {
   payouts: PayoutRepository;
   audit: AuditLog;
   proposals: ProposalRepository;
+  guard: GatewayGuardStore;
 }
 
 /** Kör `fn` atomiskt: allt som skrivs via `repos` sparas tillsammans eller inte alls. */

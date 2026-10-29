@@ -21,7 +21,7 @@ Status: tidigt skede, inget i drift. Dokumentet skiljer på **implementerat** (f
 | Läckage via loggar och fel | Nycklar, belopp eller personuppgifter i loggar | Logger avstängd i API, strukturerade revisionsposter utan känsliga fält (3.3) |
 | Stulna åtkomsttoken | Dumpad databas eller konfiguration | AES-256-GCM med kundbunden AAD (3.6). **Ingen KMS-provider än, och ingen adapter använder det** |
 | Insider eller komprometterad driftmiljö | Någon med databasåtkomst ändrar kön | Ingen teknisk motåtgärd utöver revisionsloggen. Se risker (7) |
-| Överbelastning | Många anrop mot API:t | Ingen rate limiting i servern. Förutsätts finnas framför |
+| Överbelastning | Många anrop mot API:t | Rate limiting per nyckel och per IP (processminne, 429 med Retry-After), bodygräns 64 KB, paginering. Delas inte mellan instanser |
 
 ## 3. Implementerade skydd
 
@@ -53,7 +53,7 @@ Status: tidigt skede, inget i drift. Dokumentet skiljer på **implementerat** (f
 - Bara `HMAC-SHA256(pepper, hela nyckeln)` lagras (`api_key.hash`). Pepparn (minst 32 byte) ska ligga i secret manager, inte i databasen. Nyckeln visas en enda gång vid utfärdande.
 - Verifiering sker med `timingSafeEqual`, och en jämförelse mot en blindhash görs även när nyckeln inte finns.
 - Återkallad nyckel, utgången nyckel och avstängd kund (`tenant.status = 'suspended'`) ger null och därmed `401`. `last_used_at` uppdateras vid lyckad autentisering.
-- **Begränsningar:** ingen rate limiting eller utelåsning vid upprepade felförsök. Pepparn har ingen rotationsrutin (byte ogiltigförklarar alla nycklar). Ingen endpoint eller CLI för att utfärda eller återkalla nycklar, det görs via `ApiKeyRepository`. Att utfärda och återkalla nycklar loggas inte i `audit_log`.
+- **Begränsningar:** pepparn har ingen rotationsrutin (byte ogiltigförklarar alla nycklar). Misslyckad autentisering rate-limitas per IP, men i processminne. Nycklar utfärdas och återkallas med `npm run admin` (`issue-key`, `revoke-key`) och loggas som `api_key.issued`/`api_key.revoked`.
 
 ### 3.6 Kryptering av åtkomsttoken (`src/security/crypto.ts`, `src/db/connections.ts`)
 
@@ -73,8 +73,8 @@ Domänmodellen innehåller inga kundnamn, adresser, e-post eller kortuppgifter. 
 | --- | --- | --- |
 | Kryptering av åtkomsttoken | Envelope encryption, nycklar i KMS eller secret manager, aldrig i klartext i databas eller loggar | **Delvis.** Kryptering och tabellen `connection` finns (3.6). KMS-/secret manager-leverantör saknas |
 | Minsta möjliga OAuth-scope | Minimala rättigheter hos Fortnox | Inte tillämpligt än, ingen adapter |
-| API-nycklar | Hashade nycklar per kund, rotation | Hash, återkallning och utgång finns (3.5). Pepper-rotation, rate limiting och loggning av utfärdande saknas |
-| Gallring | Regler för att radera data | Inte implementerat |
+| API-nycklar | Hashade nycklar per kund, rotation | Hash, återkallning, utgång, rate limiting och loggning av utfärdande finns (3.5). Pepper-rotation saknas |
+| Gallring | Regler för att radera data | Implementerat (`src/db/retention.ts`, `npm run admin -- retention-plan`/`retention-apply`), körs manuellt. Gränsvärden är inte beslutade (se checklistan) |
 | Radnivåsäkerhet | Inte i SPEC, rekommenderas | Inte implementerat |
 | Daglig kontrollsumma och larm | SPEC avsnitt 6 | Inte implementerat |
 
@@ -86,7 +86,7 @@ Kryssa av när det är gjort. Allt nedan är i nuläget öppet om inget annat an
 - [ ] **Personuppgiftsbiträdesavtal (PUB)** tecknat med varje kund före första produktionsdata.
 - [ ] **Underbiträden** förtecknade och kunderna informerade (hosting, databas, e-post, övervakning). Gäller även Fortnox/leverantören där de är biträden.
 - [ ] **Dataminimering.** Spara bara det avstämning kräver. Modellen är minimal (3.7). Kontrollera varje ny adapter så att den inte lagrar kundnamn eller kortdata. `AuditEntry.details` och feltexter ska hållas fria från personuppgifter (kontroll saknas i kod).
-- [ ] **Gallring/lagringstid.** Beslut om hur länge `ledger_command`, `reconcile_exception`, `payout` och `audit_log` sparas. Bokföringslagen kräver att räkenskapsinformation sparas länge (normalt sju år), så radering måste vägas mot den. Revisionsloggen är oföränderlig med avsikt och innehåller därför inte personuppgifter. **Ingen gallring är implementerad.**
+- [ ] **Gallring/lagringstid.** Beslut om hur länge `ledger_command`, `reconcile_exception`, `payout` och `audit_log` sparas. Bokföringslagen kräver att räkenskapsinformation sparas länge (normalt sju år), så radering måste vägas mot den. Revisionsloggen är oföränderlig med avsikt och innehåller därför inte personuppgifter. Gallring är implementerad (`src/db/retention.ts`) men körs manuellt och standardvärdena (400 dagar, minst 30) är inte avstämda med en redovisningskonsult. Den raderar bara kommandon för en helt klar och gammal utbetalning, aldrig öppna eller döda poster, och aldrig `audit_log` eller `payout`-raderna.
 - [ ] **EU-hosting.** Applikation, databas, backup och loggar i EU/EES. Bekräfta för varje tjänsteleverantör. Ingen hosting vald än (SPEC fråga 8).
 - [ ] **Kryptering.** TLS framför API:t. Kryptering i vila för databas och backup. Tokenkryptering (4).
 - [ ] **Åtkomstkontroll.** Vem får läsa produktionsdatabasen (kunddata) och hur loggas det.
@@ -105,13 +105,13 @@ Beroenden i `package.json`: `fastify`, `zod`, `@electric-sql/pglite`. CI kör `n
 1. **Gatewayens idempotens är obevisad.** Utförarens semantik är *minst en gång*. En Fortnox-adapter som inte kan avgöra "redan utfört" ger dubbelbokning vid krasch eller stale-återställning. Ingen Fortnox-adapter finns och Fortnox beteende är inte verifierat.
 2. **Inga riktiga adaptrar.** Hela flödet är bara testat mot simulerade källor och en fake-gateway. Verkliga format, rate limits, felkoder och retryable/permanenta fel är okända.
 3. **Tokenkryptering saknar riktig nyckelhantering.** Kryptering finns men bara med `StaticKeyProvider`. Ingen KMS-integration, ingen rotationsrutin för nycklarna i drift, och ingen adapter har använt flödet.
-4. **API-autentiseringen saknar skydd mot gissning och rutiner.** Ingen rate limiting eller utelåsning, ingen pepper-rotation, ingen TLS i servern, inga verktyg för att utfärda nycklar, och utfärdande/återkallning loggas inte.
+4. **API-autentiseringen:** rate limiting finns men i processminne (delas inte mellan instanser och nollställs vid omstart). Ingen pepper-rotation och ingen TLS i servern.
 5. **Isolering endast i applikationslagret.** Ingen RLS. Utföraren har tillgång till alla kunders kö.
 6. **Revisionsloggen är ofullständig.** API-stängningar och utförarens statusändringar loggas inte, manuella SQL-ingrepp kräver disciplin, och triggern skyddar inte mot `truncate` eller en administratör.
 7. **Dödläge utan verktyg.** Dött kommando kräver SQL-ingrepp av människa. Det ger risk för mänskliga fel och att ingreppet inte loggas.
 8. **Ingen övervakning eller larm.** Döda kommandon eller fastnade köer upptäcks bara om någon tittar.
 9. **Luckor i avstämningen.** Ingen daglig kontrollsumma mot bokfört. Ändringar hos leverantören efter att en rad köats upptäcks bara för belopp/typ av rad och vid verifikat (COMMAND_CONFLICT täcker inte ändrad referens).
 10. **Byte till live bokför allt på en gång.** Cursorn står kvar i dry_run, så alla hittills ej bokförda utbetalningar köas när kunden går live. Förslagen måste vara granskade före bytet.
-11. **Gallring och lagringstider ej beslutade eller implementerade.**
+11. **Lagringstider ej beslutade.** Gallring finns men gränsvärdena måste fastställas tillsammans med en redovisningskonsult (bokföringslagen).
 12. **Testmiljö skiljer sig från drift.** Tester körs mot PGlite. Beteende som advisory locks och `skip locked` under verklig samtidighet är inte testat i drift, vilket Postgres-jobbet i CI delvis ska täcka.
 13. **Ingen skanning av beroenden eller hemligheter i CI.**

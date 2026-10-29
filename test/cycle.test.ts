@@ -49,7 +49,7 @@ describe('runCycle', () => {
   it('permanent misslyckade kommandon ger kritiskt larm', async () => {
     const { deps, source, ledger } = await setup();
     source.add(makePayout('P1', [payment('L1', 'REF-A', 12500)]));
-    ledger.failNext(new LedgerError('faktura spärrad', false));
+    ledger.failNext(new LedgerError('faktura spärrad', false, undefined, true));
 
     const report = await runCycle(deps);
     expect(report.execution.dead).toBe(1);

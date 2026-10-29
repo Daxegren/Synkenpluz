@@ -153,7 +153,7 @@ describe('felhantering i utföraren', () => {
   it('permanent fel ger dött kommando som blockerar resten, och utbetalningen blir partial', async () => {
     const { run, execDeps, ledger, repos } = await setup(['A']);
     await run([payment('L1', 'REF-A', 12500)]);
-    ledger.failNext(new LedgerError('faktura spärrad', false));
+    ledger.failNext(new LedgerError('faktura spärrad', false, undefined, true));
 
     expect(await drain(execDeps)).toMatchObject({ dead: 1, succeeded: 0 });
     const commands = await repos.commands.listByPayout('T1', 'P1');

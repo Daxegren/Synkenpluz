@@ -101,7 +101,7 @@ describe('mänskliga åtgärder', () => {
     const { app, source, ledger, keys, clock } = await setup();
     source.add(makePayout('P1', [payment('L1', 'REF-A', 12500)]), 'T1');
     const { LedgerError } = await import('../src/ports/index.js');
-    ledger.failNext(new LedgerError('faktura spärrad', false));
+    ledger.failNext(new LedgerError('faktura spärrad', false, undefined, true));
 
     const report = await app.runCycle();
     expect(report.execution.dead).toBe(1);

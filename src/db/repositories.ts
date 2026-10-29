@@ -14,6 +14,7 @@ import type {
   UnitOfWork,
 } from '../ports/index.js';
 import type { Db } from './db.js';
+import { createGatewayGuardStore } from './gatewayGuard.js';
 import { createProposalRepository } from './proposals.js';
 
 interface CommandRow {
@@ -313,6 +314,7 @@ export function createRepositories(db: Db): Repositories {
     payouts: createPayoutRepository(db),
     audit: createAuditLog(db),
     proposals: createProposalRepository(db),
+    guard: createGatewayGuardStore(db),
   };
 }
 

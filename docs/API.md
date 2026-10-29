@@ -4,11 +4,13 @@ Dokumentationen följer `src/api/server.ts` (Fastify). Ändras koden gäller kod
 
 ## Status och begränsningar
 
-- Servern byggs med `buildServer(deps)` och returnerar en Fastify-instans. **Det finns ingen startfil** som anropar `listen`, läser konfiguration eller kopplar in en databas. Den som driftsätter måste göra det.
-- Autentiseringen är en injicerad funktion: `authenticate(apiKey) => tenantId | null`. `createAuthenticator` i `src/security/apiKeys.ts` är en implementation mot tabellen `api_key` (se nedan), men servern kräver inte att den används och det finns ingen startfil som kopplar ihop dem.
-- API:t är avsett för människan som hanterar avvikelser. Det kan **läsa** avvikelser, utbetalningar och kommandostatus, och **stänga** avvikelser. Det kan inte skapa utbetalningar, köra om, eller ändra kommandon.
-- Ingen paginering. Listor returnerar alla träffar för kunden (filtrerade).
-- Ingen TLS eller rate limiting i servern. Det förutsätts finnas framför den.
+- Servern byggs med `buildServer(deps)` (Fastify) och sätts ihop av `createApp` i `src/app/compose.ts`. `src/main.ts` startar den (`npm start`).
+- Autentisering: `createDetailedAuthenticator` (`src/security/apiKeys.ts`) mot tabellen `api_key`. Revisionsposter får `actor: api:<nyckel-id>` (aldrig hemligheten).
+- API:t är avsett för människan som hanterar avvikelser. Det kan **läsa** avvikelser, utbetalningar, kommandostatus och dry_run-förslag, och **göra mänskliga åtgärder**: stänga avvikelser, köa om döda kommandon och avgöra osäkra gateway-anrop. Alla åtgärder revisionsloggas atomiskt. Det kan inte skapa utbetalningar eller ändra kommandon.
+- **Paginering:** alla listor tar `limit` (1 till 500, standard 100) och `offset` (standard 0) och svarar `{ items, limit, offset, hasMore }`. Ogiltigt värde ger `400`.
+- **Rate limiting** (token bucket i processminne, delas inte mellan instanser): per API-nyckel, och per IP för misslyckad autentisering och öppna rutter. `429` med `Retry-After`. Sätt `trustProxy` bakom en proxy.
+- **Bodygräns** 64 KB (`413`), och okänd content-type ger `415`.
+- Ingen TLS i servern. Det förutsätts finnas framför den.
 - Loggning är avstängd i Fastify (`logger: false`) så att `x-api-key` inte hamnar i loggar.
 
 ## Autentisering
@@ -132,6 +134,20 @@ Svar `200`:
 
 `status: "complete"` betyder avstämd och köad, inte utförd. Se kommandona i nästa endpoint.
 
+### `GET /v1/proposals`
+
+Sparade dry_run-förslag för kunden: vad som SKULLE bokföras i live-läge. Filter `?status=` (`rejected`, `partial`, `complete`), samt `limit` och `offset`. Finns bara om `proposals` är kopplad (annars `404`).
+
+```sh
+curl -s -H "x-api-key: $API_KEY" "http://localhost:3000/v1/proposals?status=partial"
+```
+
+Svar `200`: `{ "items": [ { "payoutId": "P1", "status": "partial", "commandCount": 2, "exceptionCount": 1, "updatedAt": "..." } ], "limit": 100, "offset": 0, "hasMore": false }`.
+
+### `GET /v1/proposals/:payoutId`
+
+Ett förslag i detalj: `commands` (utan idempotensnyckel) och `exceptions`. `404` om förslag saknas. Förslaget försvinner när utbetalningen bokförs live.
+
 ### `GET /v1/payouts/:id`
 
 Hämtar en utbetalning med dess kommandon i utförandeordning. Kommandots `id` används för att köa om det med `POST /v1/commands/:id/retry`. `404` om utbetalningen inte finns.
@@ -173,6 +189,24 @@ curl -s -X POST -H "x-api-key: $API_KEY" http://localhost:3000/v1/commands/$COMM
 ```
 
 Svar `200`: `{"id": "...", "status": "pending"}`. `409` om kommandot inte finns, tillhör en annan kund eller inte är dött (ett kommando som är `pending`, `failed`, `in_progress` eller `succeeded` kan inte köas om). Åtgärden revisionsloggas som `command.requeued`.
+
+### `GET /v1/guard/in-doubt`
+
+Kundens gateway-anrop vars utfall är **okänt**: anropet skickades men vi vet inte om affärssystemet tog emot det (timeout, avbruten anslutning, 5xx). Systemet skickar dem aldrig om automatiskt, eftersom det kunde ge dubbelbokning. En människa ska kontrollera i affärssystemet och avgöra med `POST /v1/guard/resolve`. Paginerad. Finns bara om `guard` är kopplad (annars `404`).
+
+Svar `200`: `{ "items": [ { "key": "...", "startedAt": "..." } ], "limit": 100, "offset": 0, "hasMore": false }`.
+
+### `POST /v1/guard/resolve`
+
+Avgör ett okänt utfall efter att du kontrollerat i affärssystemet. Body: `{ "key": "...", "applied": true, "externalId": "..." }` när kommandot **utfördes** (`externalId` krävs), eller `{ "key": "...", "applied": false }` när det **inte** utfördes (`externalId` får inte anges). Svar `200` `{ "key", "applied", "resolved": true }`, `409` om ingen osäker post finns för nyckeln. Revisionspost `guard.resolved` med en kort hash av nyckeln, utan externt id och fritext. Köa därefter om det döda kommandot med `POST /v1/commands/:id/retry`.
+
+### `GET /ready`
+
+Öppen beredskapskoll: `200 {"status":"ready"}` när databasen svarar, annars `503 {"status":"unavailable"}` utan detaljer. Rate-limitad per IP.
+
+### `GET /metrics`
+
+Prometheus-mätvärden (kö per status, döda kommandon, äldsta väntande kommando, öppna avvikelser, osäkra anrop, kunder per läge). **Inga kund-id** i etiketter. Finns bara om `METRICS_TOKEN` är satt (annars `404`). Kräver `Authorization: Bearer <token>`, jämförs tidskonstant, annars `401`. Format `text/plain; version=0.0.4`.
 
 ## Exempel: arbetsflöde för avvikelser
 

@@ -2,6 +2,7 @@ import pg from 'pg';
 import { createApp } from './app/compose.js';
 import { parseEnv } from './app/config.js';
 import type { Logger } from './app/cycle.js';
+import { createWebhookNotifier } from './app/notify.js';
 import { notConfiguredAdapters } from './app/notConfigured.js';
 import { createPgDb } from './db/pg.js';
 import { migrate } from './db/migrations.js';
@@ -32,7 +33,14 @@ async function main() {
     apiKeyPepper: env.apiKeyPepper,
     adapters: notConfiguredAdapters,
     logger,
+    // Larm skickas bara om en webhook är konfigurerad (annars loggas de). Adressen loggas aldrig.
+    ...(env.alertWebhookUrl
+      ? { alerts: { notifier: createWebhookNotifier({ url: env.alertWebhookUrl, ...(env.alertLabel ? { label: env.alertLabel } : {}) }) } }
+      : {}),
+    // /metrics finns bara om en token är konfigurerad.
+    ...(env.metricsToken ? { metricsToken: env.metricsToken } : {}),
   });
+  if (!env.alertWebhookUrl) logger.warn('ALERT_WEBHOOK_URL saknas: larm loggas men skickas inte');
 
   await app.server.listen({ port: env.port, host: env.host });
   logger.info('API startat', { port: env.port });

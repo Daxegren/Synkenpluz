@@ -32,7 +32,9 @@ flowchart TB
         PROC["processPayout<br/>spara atomiskt"]
         ENG["reconcile<br/>ren avstämningsmotor"]
         EXE["Utförare<br/>runDueCommands / drain"]
+        GRD["GuardedLedgerGateway<br/>skydd mot dubbelbokning"]
         CYC["runCycle<br/>körcykel + larm"]
+        NOT["Larmutskick<br/>webhook, dämpning"]
     end
 
     subgraph Data["Postgres (src/db)"]
@@ -41,6 +43,8 @@ flowchart TB
         PO[("payout")]
         AU[("audit_log<br/>append-only")]
         TE[("tenant · api_key<br/>connection · sync_state")]
+        GG[("gateway_guard<br/>journal över anrop")]
+        PR[("dry_run_proposal<br/>förslag")]
     end
 
     subgraph Ytan["Gränssnitt utåt"]
@@ -67,7 +71,11 @@ flowchart TB
     PROC --> PO
     PROC --> AU
     EXE --> Q
-    EXE --> LG
+    EXE --> GRD
+    GRD --> LG
+    GRD --> GG
+    PROC --> PR
+    CYC --> NOT
     API --> EX
     API --> PO
     API --> Q
@@ -107,6 +115,7 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | --- | --- | --- | --- | --- |
 | Spara en utbetalning atomiskt | Kommandon, avvikelser, status och revisionspost i en transaktion | `processPayout` i `src/service/processPayout.ts` | `test/e2e.test.ts` | ✅ |
 | Dry-run | Beräkna förslag utan att spara eller logga något. Nya kunder startar här | `processPayout` (`mode: 'dry_run'`) | `test/e2e.test.ts`, `test/sync.test.ts` | ✅ |
+| Sparade dry_run-förslag | Dry-run sparar förslaget per utbetalning (kommandon + avvikelser) för granskning före go-live. Oförändrat förslag rörs inte. Försvinner när utbetalningen bokförs live | `processPayout`, `src/db/proposals.ts` | `test/proposals.test.ts` | ✅ |
 | Konfliktdetektering | Upptäcker att en redan köad rad ändrats hos leverantören | `withConflicts` i `processPayout.ts` | `test/e2e.test.ts` | ✅ |
 | Auto-stäng avvikelser | Avvikelser som inte längre uppstår stängs vid omkörning | `processPayout` | `test/e2e.test.ts` | ✅ |
 | Hämta nya utbetalningar | Hämtar från leverantör efter cursor, avstämmer varje, felisolerat per utbetalning | `syncTenant` i `src/service/syncTenant.ts` | `test/sync.test.ts` | 🧪 |
@@ -118,14 +127,34 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Dött kommando → utbetalning `partial` | `onDead` sätter status och loggar | `createApp` i `src/app/compose.ts` | `test/hardening.test.ts` | ✅ |
 | Avstängd kund får inget utfört | `claimDue` hoppar över avstängda och dry_run-kunder | `claimDue` | `test/hardening.test.ts` | ✅ |
 
+### Skydd mot dubbelbokning
+
+| Funktion | Vad den gör | Kod | Test | Status |
+| --- | --- | --- | --- | --- |
+| Skyddsgateway | Journalför varje anrop (påbörjad före, klar efter). Samma nyckel ger samma svar. Skickar aldrig om ett kommando vars utfall är okänt. Fungerar även om affärssystemet saknar egen idempotens. **På som standard** i `createApp` | `GuardedLedgerGateway` i `src/gateways/guarded.ts`, `src/db/gatewayGuard.ts` | `test/guarded.test.ts`, `test/guard-app.test.ts` | ✅ |
+| Okänt utfall avgörs av människa | Osäkra anrop listas och avgörs ("utfördes"/"utfördes inte") via API eller CLI, därefter köas kommandot om | `GET /v1/guard/in-doubt`, `POST /v1/guard/resolve`, adminkommandona `list-in-doubt`/`resolve-in-doubt` | `test/guard-app.test.ts`, `test/api/extended.test.ts`, `test/retention.test.ts` | ✅ |
+| Automatisk kontroll av okänt utfall | `verify`-hook: affärssystemet kan själv svara om kommandot redan utförts | `GuardedOptions.verify` | `test/guarded.test.ts` | 🧪 ingen adapter använder den |
+| Kontraktssviter för adaptrar | Färdiga tester som varje `PayoutSource`, `InvoiceReader` och `LedgerGateway` ska klara (idempotens, isolering, färsk status, felklassning) | `test/contracts/ports.contract.ts` | `test/contracts/fakes.test.ts` | ✅ (körs mot simulerade) |
+| Felklassning för HTTP | En enda tabell från HTTP-utfall till `LedgerError` med `retryable`, `retryAfterMs`, `notApplied` | `classifyHttpFailure` i `src/http/errors.ts` | `test/http/errors.test.ts` | ✅ |
+
+### Infrastruktur för framtida adaptrar (`src/http/`)
+
+| Funktion | Vad den gör | Kod | Test | Status |
+| --- | --- | --- | --- | --- |
+| HTTP-klient | Timeout, svarsstorlek, rate limiter, auth-header, ett omförsök vid 401, aldrig hemligheter i fel | `createHttpClient` i `src/http/client.ts` | `test/http/client.test.ts` | ✅ |
+| Rate limiter mot leverantör | Token bucket, FIFO | `createRateLimiter` i `src/http/rateLimiter.ts` | `test/http/rateLimiter.test.ts` | ✅ |
+| OAuth2-token | Cachar, förnyar före utgång, serialiserar förnyelser, roterar refresh-token via callback | `createOAuth2TokenProvider` i `src/http/oauth.ts` | `test/http/oauth.test.ts` | ✅ |
+
 ### Gränssnitt för människor
 
 | Funktion | Vad den gör | Kod | Test | Status |
 | --- | --- | --- | --- | --- |
-| Läsa utbetalningar och avvikelser | Tenant-isolerat HTTP-API | `buildServer` i `src/api/server.ts` | `test/api/server.test.ts`, `test/app.test.ts` | ✅ |
+| Läsa utbetalningar, avvikelser och förslag | Tenant-isolerat HTTP-API med paginering (`limit`, `offset`, `hasMore`) | `buildServer` i `src/api/server.ts` | `test/api/server.test.ts`, `test/app.test.ts` | ✅ |
 | Stänga avvikelse | `POST /v1/exceptions/:id/resolve`, revisionsloggas atomiskt | `buildServer` | `test/api/`, `test/hardening.test.ts` | ✅ |
 | Köa om dött kommando | `POST /v1/commands/:id/retry`, revisionsloggas atomiskt | `buildServer`, `requeue` | `test/app.test.ts` | ✅ |
 | Administrera kunder | Skapa kund, kontoplan, läge, nycklar, kopplingar via CLI | `scripts/admin.ts` | `scripts/smoke-steps.sh` | ✅ |
+| Granska dry_run-förslag | `GET /v1/proposals`, `GET /v1/proposals/:payoutId` och adminkommandot `list-proposals` (utan belopp) | `buildServer`, `summarizeProposal` | `test/api/extended.test.ts`, `test/retention.test.ts` | ✅ |
+| Gallring (GDPR) | Torrkörning och körning av gallring enligt säkra regler. Rör aldrig öppet, dött, pågående, `audit_log` eller `payout` | `planRetention`, `applyRetention` i `src/db/retention.ts`, adminkommandona `retention-plan`/`retention-apply` | `test/retention.test.ts` | ✅ (körs manuellt) |
 | Demo | Berättande genomkörning med simulerade system | `scripts/demo.ts` | körs manuellt (`npm run demo`) | ✅ |
 | Rökprov | Temporär Postgres, admin, server, API, nedstängning | `scripts/smoke.sh` | körs manuellt (`npm run smoke`) | ✅ |
 
@@ -135,6 +164,8 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | --- | --- | --- | --- | --- |
 | API-nycklar | Genereras en gång, lagras som HMAC, tidskonstant jämförelse, återkallning, utgång | `src/security/apiKeys.ts`, `src/db/tenants.ts` | `test/security/security.test.ts` | ✅ |
 | Kryptering av åtkomsttoken | AES-256-GCM, nyckel-id i blobben, bundet till kund/koppling/fält (AAD), nyckelrotation | `src/security/crypto.ts`, `src/db/connections.ts` | `test/security/security.test.ts` | ✅ (ingen KMS) |
+| Rate limiting och bodygräns i API:t | Token bucket per nyckel och per IP (misslyckad auth), 429 med Retry-After, bodygräns 64 KB | `RateLimiter` i `src/api/rateLimit.ts` | `test/api/rateLimit.test.ts`, `test/api/extended.test.ts` | ✅ (i processminne) |
+| Mätvärden och hälsa | `GET /metrics` (Prometheus, bearer-token, inga kund-id) och `GET /ready` | `collectMetrics`, `renderPrometheus` i `src/db/metrics.ts` | `test/metrics.test.ts`, `test/api/extended.test.ts` | ✅ |
 | Tenant-isolering | Alla frågor filtreras på kund; IDOR ger 404 | alla repositorier, `server.ts` | `test/api/server.test.ts`, `test/db/` | ✅ |
 | Revisionslogg | Append-only (trigger mot update/delete/truncate), inga belopp eller referenser | `audit_log`, `createAuditLog` | `test/db/repositories.test.ts` | ✅ |
 | Inga hemligheter i loggar/fel | Fasta felmeddelanden, tom logger i API, admin skriver aldrig ut indata | `server.ts`, `crypto.ts`, `admin.ts` | `scripts/smoke-steps.sh`, `test/security/` | ✅ |
@@ -147,7 +178,7 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Läsa fakturor i Fortnox (`InvoiceReader`) | gränssnitt i `src/ports/sources.ts`; simulerad i `src/gateways/fake.ts` | 🔲 adapter saknas |
 | Bokföra i Fortnox (`LedgerGateway`) | gränssnitt i `src/ports/index.ts`; simulerad i `src/gateways/fake.ts` | 🔲 adapter saknas |
 | Spiris, fler betalleverantörer | samma gränssnitt | 🔲 |
-| Skicka larm (e-post, pager) | `Alert` skapas i `runCycle` | 🔲 |
+| Skicka larm | `createWebhookNotifier` + `createAlertDispatcher` i `src/app/notify.ts` (Slack-kompatibel webhook, dämpning). E-post och pager saknas | ✅ webhook · 🔲 e-post/pager |
 | Produkt-, lager-, prissynk, order- och fakturaskapande | – | 🔲 ej påbörjat |
 
 ## 3. Kodkarta: fil för fil
@@ -171,7 +202,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 
 | Fil | Ansvar | Innehåll |
 | --- | --- | --- |
-| `src/ports/index.ts` | Skriv- och lagringsportar | `CommandRepository` (enqueue, claimDue, markSucceeded, markFailed, releaseStale, listByPayout, countDead, requeue) · `ExceptionRepository` (add, list, get, resolve) · `PayoutRepository` (record, get, list) · `AuditLog` (append, list) · `UnitOfWork` (run) · `LedgerGateway` (execute, **måste vara idempotent på nyckeln**) · `LedgerError` · `Clock` |
+| `src/ports/index.ts` | Skriv- och lagringsportar | `CommandRepository` (enqueue, claimDue, markSucceeded, markFailed, releaseStale, listByPayout, countDead, requeue) · `ExceptionRepository` (add, list, get, resolve) · `PayoutRepository` (record, get, list) · `AuditLog` (append, list) · `UnitOfWork` (run) · `LedgerGateway` (execute, **måste vara idempotent på nyckeln eller köras bakom skyddsgatewayen**) · `LedgerError` (`retryable`, `retryAfterMs`, `notApplied`) · `ProposalRepository` · `GatewayGuardStore` · `Clock` |
 | `src/ports/sources.ts` | Läsportar och konfiguration | `PayoutSource` (listPayoutsSince, getPayout) · `InvoiceReader` (findByReferences) · `TenantConfigProvider` · `SyncStateStore` · `TenantConfig` |
 
 ### `src/service/`: användningsfall
@@ -197,26 +228,41 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | `src/db/repositories.ts` | Kö, avvikelser, utbetalningar, revisionslogg, arbetsenhet | `createCommandRepository`, `createExceptionRepository`, `createPayoutRepository`, `createAuditLog`, `createRepositories`, `createUnitOfWork` |
 | `src/db/tenants.ts` | Kunder och API-nycklar | `createTenantRepository` (create, get, setStatus, setMode) · `createApiKeyRepository` (issue, revoke, list, findById, touchLastUsed) |
 | `src/db/connections.ts` | Krypterade kopplingar till leverantörer | `createConnectionRepository` (upsert, list, getInfo, setStatus, getCredentialsForExecution, reencryptAll, delete) |
+| `src/db/proposals.ts` | Sparade dry_run-förslag per utbetalning | `createProposalRepository` (upsert, list, get, delete) |
+| `src/db/gatewayGuard.ts` | Journal över gateway-anrop (Postgres) | `createGatewayGuardStore` (begin, complete, abort, resolve, listInDoubt) |
+| `src/db/metrics.ts` | Mätvärden för drift utan kund-id | `collectMetrics` · `renderPrometheus` |
+| `src/db/retention.ts` | Gallring med säkra regler samt hjälpare för adminkommandon | `planRetention` · `applyRetention` · `resolveRetentionPolicy` · `DEFAULT_RETENTION_POLICY` · `RetentionPolicyError` · `parseRetentionArgs` · `formatRetentionResult` · `formatAge` · `keyFingerprint` · `parseInDoubtDecision` · `summarizeProposal` |
 | `src/db/syncState.ts` | Cursor, kontoplan och kundkonfiguration för synk | `createSyncStateStore`, `setTenantAccounts`, `createTenantConfigProvider`, `listSyncableTenants`, `accountMappingSchema` |
 
 ### `src/security/`: nycklar och kryptering
 
 | Fil | Ansvar | Funktioner |
 | --- | --- | --- |
-| `src/security/apiKeys.ts` | API-nycklar: generera, hasha, verifiera, autentisera | `generateApiKey`, `hashApiKey`, `verifyApiKey`, `parseApiKeyId`, `createAuthenticator`, konstant `API_KEY_PREFIX` |
+| `src/security/apiKeys.ts` | API-nycklar: generera, hasha, verifiera, autentisera (även med nyckel-id för revisionsloggen) | `createDetailedAuthenticator`, `generateApiKey`, `hashApiKey`, `verifyApiKey`, `parseApiKeyId`, `createAuthenticator`, konstant `API_KEY_PREFIX` |
 | `src/security/crypto.ts` | AES-256-GCM med AAD och nyckelrotation | `encryptSecret`, `decryptSecret`, `parseBlob`, `blobKeyId`, `StaticKeyProvider`, `CryptoError`, gränssnitt `KeyProvider` |
 
 ### `src/api/`: HTTP
 
 | Fil | Ansvar | Funktioner |
 | --- | --- | --- |
-| `src/api/server.ts` | Fastify-server med auth, validering (zod), enhetliga fel | `buildServer` · *atomically, presentException, presentPayout, presentCommand, parse* |
+| `src/api/server.ts` | Fastify-server med auth, validering (zod), paginering, enhetliga fel, rate limiting, bodygräns, /ready, /metrics | `buildServer` · *atomically, presentException, presentPayout, presentCommand, parse* |
+| `src/api/rateLimit.ts` | Token bucket per nyckel/IP med städning och tak | `RateLimiter` (take, peek) · `defaultRateLimitConfig` · `resolveRateLimitConfig` |
+
+### `src/http/`: infrastruktur för framtida adaptrar
+
+| Fil | Ansvar | Funktioner |
+| --- | --- | --- |
+| `src/http/client.ts` | Robust HTTP-klient (timeout, storleksgräns, auth, 401-omförsök, inga hemligheter i fel) | `createHttpClient` · konstant `DEFAULT_MAX_RESPONSE_BYTES` |
+| `src/http/errors.ts` | En enda klassningstabell från HTTP-utfall till `LedgerError` | `classifyHttpFailure` · `toLedgerError` · `failureToLedgerError` · `parseRetryAfter` · `errorCode` · `safePath` · klassen `HttpLedgerError` · konstant `MAX_RETRY_AFTER_MS` |
+| `src/http/rateLimiter.ts` | Token bucket mot leverantörens gränser | `createRateLimiter` |
+| `src/http/oauth.ts` | OAuth2-tokenhantering med serialiserad förnyelse | `createOAuth2TokenProvider` |
 
 ### `src/app/` och `src/main.ts`: sammansättning och start
 
 | Fil | Ansvar | Funktioner |
 | --- | --- | --- |
 | `src/app/compose.ts` | Kopplar ihop databas, säkerhet, API och körcykel | `createApp` (inkl. `onDead`) |
+| `src/app/notify.ts` | Skickar larm till en människa med dämpning | `createWebhookNotifier` · `createAlertDispatcher` · gränssnitt `Notifier` |
 | `src/app/cycle.ts` | En körcykel: återhämta, synka alla kunder, kör kön, skapa larm | `runCycle`, `silentLogger` |
 | `src/app/config.ts` | Läser och validerar miljövariabler utan att läcka värden | `parseEnv` |
 | `src/app/notConfigured.ts` | Platshållaradaptrar som misslyckas tydligt | `notConfiguredAdapters` |
@@ -226,9 +272,11 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 
 | Fil | Ansvar | Innehåll |
 | --- | --- | --- |
-| `src/gateways/fake.ts` | Simulerat affärssystem, idempotent på nyckel | `FakeLedgerGateway` (failNext, addInvoice, invoice, executed, vouchers) |
+| `src/gateways/guarded.ts` | **Skyddsgateway** runt varje riktig gateway: journalför, avgör osäkra utfall, skickar aldrig om på gissning | `GuardedLedgerGateway` |
+| `src/gateways/fakeGuard.ts` | Journal i minnet (tester, demo) | `MemoryGatewayGuardStore` |
+| `src/gateways/fake.ts` | Simulerat affärssystem, idempotent på nyckel | `FakeLedgerGateway` (failNext, failAfterApplyNext, addInvoice, invoice, executed, vouchers) |
 | `src/gateways/fakeSource.ts` | Simulerad leverantör, konfiguration och synkstatus | `FakePayoutSource`, `MemoryTenantConfig`, `MemorySyncState` |
-| `src/testing/memory.ts` | Minnesversioner av repositorierna (för API-tester) | `createMemoryStore`, `createMemoryCommandRepository`, `createMemoryExceptionRepository`, `createMemoryPayoutRepository`. Saknar ordning per utbetalning, använd PGlite när det spelar roll |
+| `src/testing/memory.ts` | Minnesversioner av repositorierna (för API-tester) | `createMemoryStore`, `createMemoryCommandRepository`, `createMemoryExceptionRepository`, `createMemoryPayoutRepository`, `createMemoryProposalRepository`, `createMemoryGatewayGuardStore`. Saknar ordning per utbetalning, använd PGlite när det spelar roll |
 
 ### `scripts/` och CI
 
@@ -289,6 +337,8 @@ erDiagram
     payout ||--o{ ledger_command : "består av (ingen FK)"
     payout ||--o{ reconcile_exception : "ger (ingen FK)"
     tenant ||--o{ audit_log : "loggas (ingen FK)"
+    tenant ||--o{ gateway_guard : "journalför (ingen FK)"
+    payout ||--o| dry_run_proposal : "kan ha (ingen FK)"
 ```
 
 | Tabell | Migration | Innehåll | Repository |
@@ -301,9 +351,11 @@ erDiagram
 | `api_key` | 002 | HMAC-hash, utgång, återkallning, senast använd | `createApiKeyRepository` |
 | `connection` | 002 | Krypterade uppgifter per (kund, leverantör), status | `createConnectionRepository` |
 | `sync_state` | 003 | Cursor per kund | `createSyncStateStore` |
+| `gateway_guard` | 005 | Journal över gateway-anrop: `started` före, `done` efter. `started` som aldrig blir `done` = okänt utfall | `createGatewayGuardStore` |
+| `dry_run_proposal` | 006 | Senaste dry_run-förslag per utbetalning | `createProposalRepository` |
 | `schema_migrations` | (skapas av `migrate`) | Vilka migrationer som körts | `migrate` |
 
-**Migrationer:** `001_init` (kö, avvikelser, utbetalning, revisionslogg) · `002_tenants_connections` (kunder, nycklar, kopplingar) · `003_sync_state_and_accounts` (cursor, kontoplan) · `004_command_key_per_tenant_and_audit_truncate` (nyckel per kund, skydd mot truncate).
+**Migrationer:** `001_init` (kö, avvikelser, utbetalning, revisionslogg) · `002_tenants_connections` (kunder, nycklar, kopplingar) · `003_sync_state_and_accounts` (cursor, kontoplan) · `004_command_key_per_tenant_and_audit_truncate` (nyckel per kund, skydd mot truncate) · `005_gateway_guard` (journal över gateway-anrop) · `006_dry_run_proposal` (sparade förslag).
 
 ## 6. Gränssnitt utåt
 
@@ -317,11 +369,17 @@ erDiagram
 | `POST /v1/exceptions/:id/resolve` | Stäng avvikelse (resolved/dismissed + anteckning). Loggas |
 | `POST /v1/commands/:id/retry` | Köa om dött kommando. Loggas |
 | `GET /v1/payouts` | Lista utbetalningar (`status`) |
+| `GET /v1/proposals` | Lista sparade dry_run-förslag (`status`) |
+| `GET /v1/proposals/:payoutId` | Ett förslag med kommandon och avvikelser |
+| `GET /v1/guard/in-doubt` | Anrop till affärssystemet med okänt utfall |
+| `POST /v1/guard/resolve` | Avgör ett okänt utfall (utfört/ej utfört). Loggas |
+| `GET /ready` | Öppen beredskapskoll mot databasen (200/503) |
+| `GET /metrics` | Prometheus-mätvärden. Bara om `METRICS_TOKEN` är satt, bearer-token |
 | `GET /v1/payouts/:id` | En utbetalning med dess kommandon |
 
 ### Adminkommandon (`npm run admin -- <kommando>`)
 
-`create-tenant` · `set-accounts` · `set-mode` · `suspend` · `activate` · `issue-key` · `revoke-key` · `set-connection` · `list-tenants`. Varje åtgärd skriver en revisionspost med `actor: admin-cli`.
+`create-tenant` · `set-accounts` · `set-mode` · `suspend` · `activate` · `issue-key` · `revoke-key` · `set-connection` · `list-tenants` · `retention-plan` · `retention-apply` · `list-in-doubt` · `resolve-in-doubt` · `list-proposals`. Varje åtgärd skriver en revisionspost med `actor: admin-cli`.
 
 ### npm-skript
 
@@ -338,11 +396,11 @@ erDiagram
 
 ### Miljövariabler (läses av `parseEnv`)
 
-`DATABASE_URL` · `API_KEY_PEPPER` (32 byte) · `MASTER_KEYS` (`id:nyckel,...`, första är aktuell) · `PORT` (3000) · `HOST` (0.0.0.0) · `CYCLE_INTERVAL_MS` (60000, 0 = bara API). Testmiljö: `PG_TEST_URL` (riktig Postgres för `test/pg`), `PG_BIN`, `PG_RUN_USER`, `PG_TEST_PORT`, `PG_RUN_CMD` (för `scripts/pg-test.sh`).
+`DATABASE_URL` · `API_KEY_PEPPER` (32 byte) · `MASTER_KEYS` (`id:nyckel,...`, första är aktuell) · `PORT` (3000) · `HOST` (0.0.0.0) · `CYCLE_INTERVAL_MS` (60000, 0 = bara API) · `ALERT_WEBHOOK_URL` (valfri, hemlig) · `ALERT_LABEL` (valfri) · `METRICS_TOKEN` (valfri, minst 24 tecken). Testmiljö: `PG_TEST_URL` (riktig Postgres för `test/pg`), `PG_BIN`, `PG_RUN_USER`, `PG_TEST_PORT`, `PG_RUN_CMD` (för `scripts/pg-test.sh`).
 
 ### Revisionsposter (`audit_log.action`)
 
-`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set`. Innehåller aldrig belopp, referenser eller fria anteckningar.
+`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set` · `guard.resolved` · `retention.applied`. Innehåller aldrig belopp, referenser eller fria anteckningar.
 
 ## 7. Koder och tillstånd
 
@@ -402,8 +460,24 @@ Tillståndsdiagram och regler: [ARCHITECTURE.md](ARCHITECTURE.md) avsnitt 4.
 | `test/pg/contract.ts` | Delad kontraktssvit för databaslagret |
 | `test/pg/pglite.test.ts` | Kontraktet mot PGlite |
 | `test/pg/pg.test.ts` | Kontraktet + samtidighet mot riktig Postgres (kräver `PG_TEST_URL`) |
+| `test/pg/features.pg.test.ts` | Gallring, mätvärden, förslag och skyddsgateway mot riktig Postgres (kräver `PG_TEST_URL`) |
 | `test/pg/support.ts` | Schema per test för Postgres-sviten |
 | `test/helpers.ts` | Gemensamma testhjälpare (klocka, databas, byggare) |
+| `test/proposals.test.ts` | Sparade dry_run-förslag |
+| `test/guarded.test.ts` | Skyddsgatewayen mot ett affärssystem utan idempotens (minne och Postgres-schema) |
+| `test/guard-app.test.ts` | Skyddet genom hela produkten och API:t, inkl. mänskligt avgörande |
+| `test/contracts/ports.contract.ts` | Kontraktssviter för `PayoutSource`, `InvoiceReader`, `LedgerGateway` |
+| `test/contracts/fakes.test.ts` | De simulerade implementationerna och skyddsgatewayen mot kontrakten |
+| `test/notify.test.ts` | Larmutskick och dämpning |
+| `test/config.test.ts` | Miljökonfigurationen, inkl. att inga hemligheter läcker |
+| `test/metrics.test.ts` | Mätvärden och Prometheus-format |
+| `test/retention.test.ts` | Gallring, policyvalidering, adminhjälpare |
+| `test/api/extended.test.ts` | Paginering, förslags- och guardrutter, /ready, /metrics, bodygräns |
+| `test/api/rateLimit.test.ts` | Rate limiting i API:t |
+| `test/http/client.test.ts` | HTTP-klienten mot riktig lokal server |
+| `test/http/errors.test.ts` | Klassningstabellen och Retry-After |
+| `test/http/oauth.test.ts` | OAuth2-tokenhantering |
+| `test/http/rateLimiter.test.ts` | Rate limitern mot leverantör |
 | `test/docs.test.ts` | Att den här kartan och övrig dokumentation är komplett |
 
 ## 9. Hitta rätt

@@ -61,3 +61,22 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 - `test/docs.test.ts`: underkänner bygget om dokumentationen blir ofullständig (kodfiler, exporter, rutter, avvikelsekoder, tabeller, migrationer, skript, adminkommandon, miljövariabler, revisionsposter, testfiler, trasiga länkar). Verifierat genom att lägga till en odokumenterad fil: testet slog larm med exakt namn.
 - Alla sex mermaid-diagram renderades i headless Chromium för att säkerställa giltig syntax. En första fristående SVG visade sig vara trasig utanför webbläsare och ersattes av PNG.
 - Föråldrade påståenden i `ARCHITECTURE.md` rättade.
+
+## 2026-10-29: bygget som inte kräver Mondido eller Fortnox
+
+**Mål:** bygga allt som går utan riktiga API:er, för att göra den dag adaptrarna skrivs så liten och riskfri som möjligt.
+
+| Del | Vad |
+| --- | --- |
+| Skyddsgateway | `GuardedLedgerGateway` + journal (`gateway_guard`, migration 005). På som standard. Bevisat mot ett affärssystem utan idempotens |
+| Sparade dry_run-förslag | `dry_run_proposal` (migration 006), API och CLI |
+| Kontraktssviter | `test/contracts/`: färdiga tester för `PayoutSource`, `InvoiceReader`, `LedgerGateway`. Negativt verifierade (ett naivt affärssystem faller) |
+| Larmutskick | Webhook (Slack-kompatibel) med dämpning, `ALERT_WEBHOOK_URL` |
+| HTTP-infrastruktur | `src/http/`: klient, felklassning, rate limiter, OAuth2 (agent) |
+| API-hårdning | Paginering, rate limiting, bodygräns, `/ready`, `/metrics`, nyckel-id i revisionslogg, guard- och förslagsrutter (agent) |
+| Gallring | `src/db/retention.ts` + adminkommandon (agent) |
+| Konfiguration | Tester för `parseEnv`, nya variabler |
+
+**Agenter:** HTTP-infrastruktur, API-hårdning och gallring byggdes av tre parallella agenter med disjunkta filer. Alla körde samma modell som huvudsessionen (`claude-sonnet-5-5`, medium effort); det blev ungefär 1,4 miljoner tokens totalt för tio agenter under hela bygget. Beslut att dra ner: inga fler agenter för småsaker, billigare modell och låg effort för mekaniskt arbete, riktade testkörningar, och ny session efter större etapper (huvudkontexten var över 535 000 tokens, vilket är det som driver kostnaden mest).
+
+**Fynd och lärdomar:** agenternas rapporter pekade på att `guard.resolve` och revisionspost inte var atomiska (löst: `guard` ingår nu i `Repositories`), att paginering av förslag och osäkra anrop sker i minnet, och att rate limiter-tillstånd ligger i processminne. Fake-gatewayens definitiva avvisningar markerades `notApplied` så att skyddet kan skilja dem från okänt utfall. Demon byttes till ett 429-liknande fel av samma skäl.
