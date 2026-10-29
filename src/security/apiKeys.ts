@@ -72,12 +72,20 @@ export interface ApiKeyStore {
 // Används för att göra jämförelsen lika dyr när nyckeln inte finns.
 const DUMMY_HASH = '0'.repeat(64);
 
-/** Bygger `authenticate` som matchar ApiDeps i src/api/server.ts. Returnerar tenantId eller null. */
-export function createAuthenticator(deps: {
+export interface AuthenticatedKey {
+  tenantId: string;
+  /** Nyckelns offentliga id (aldrig hemligheten). Säkert att logga och skriva i revisionsposter. */
+  keyId: string;
+}
+
+export interface AuthenticatorDeps {
   store: ApiKeyStore;
   pepper: Buffer;
   clock: Clock;
-}): (rawKey: string) => Promise<string | null> {
+}
+
+/** Som createAuthenticator men returnerar även nyckelns offentliga id, så att revisionen kan ange vilken nyckel som användes. */
+export function createDetailedAuthenticator(deps: AuthenticatorDeps): (rawKey: string) => Promise<AuthenticatedKey | null> {
   assertPepper(deps.pepper);
   return async (rawKey) => {
     const id = typeof rawKey === 'string' ? parseApiKeyId(rawKey) : null;
@@ -90,6 +98,12 @@ export function createAuthenticator(deps: {
     if (record.expiresAt !== null && record.expiresAt.getTime() <= now.getTime()) return null;
     if (record.tenantStatus !== 'active') return null;
     await deps.store.touchLastUsed(record.id, now);
-    return record.tenantId;
+    return { tenantId: record.tenantId, keyId: record.id };
   };
+}
+
+/** Bygger `authenticate` som matchar ApiDeps i src/api/server.ts. Returnerar tenantId eller null. */
+export function createAuthenticator(deps: AuthenticatorDeps): (rawKey: string) => Promise<string | null> {
+  const detailed = createDetailedAuthenticator(deps);
+  return async (rawKey) => (await detailed(rawKey))?.tenantId ?? null;
 }

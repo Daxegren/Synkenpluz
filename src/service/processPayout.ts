@@ -9,7 +9,7 @@ export interface ProcessPayoutDeps {
 
 export interface ProcessPayoutOptions {
   /**
-   * dry_run: beräkna och returnera förslaget utan att spara något utom en revisionspost.
+   * dry_run: beräkna och returnera förslaget. Förslaget sparas för granskning, inget annat.
    * Används för nya kunder tills de godkänt förslagen (SPEC avsnitt 6). Godkännande = kör live.
    */
   mode?: 'live' | 'dry_run';
@@ -55,9 +55,15 @@ export async function processPayout(
     const result = withConflicts(reconciled, existing, payout);
 
     if (mode === 'dry_run') {
-      // Ett förslag sparar inget och loggas inte: det skulle ge en revisionspost per cykel för alltid.
+      // Förslaget sparas (ett per utbetalning, det senaste gäller) så att kunden eller deras redovisningskonsult
+      // kan granska vad som SKULLE bokföras innan go-live. Inga kommandon köas, inga avvikelser läggs in och
+      // ingen revisionspost skrivs (den skulle annars växa med en post per cykel för alltid).
+      await repos.proposals.upsert(tenantId, payout.id, result, now);
       return { mode, result, enqueued: 0, autoResolved: 0 };
     }
+
+    // Live: förslaget har gjort sitt. Bokföringen sker nu på riktigt.
+    await repos.proposals.delete(tenantId, payout.id);
 
     const enqueued = await repos.commands.enqueue(tenantId, payout.id, result.commands, now);
     const newExceptions = await repos.exceptions.add(tenantId, payout.id, result.exceptions, now);

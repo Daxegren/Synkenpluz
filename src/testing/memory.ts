@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { LedgerCommand, ReconcileException } from '../domain/types.js';
+import type { LedgerCommand, ReconcileException, ReconcileResult } from '../domain/types.js';
 import type {
   CommandRepository,
   ExceptionRepository,
+  GatewayGuardStore,
+  ProposalRepository,
+  StoredProposal,
   ExceptionStatus,
   PayoutRecord,
   PayoutRepository,
@@ -21,6 +24,12 @@ const copy = <T>(value: T): T => structuredClone(value);
 
 /** Tupel-nyckel utan risk för kollisioner mellan fält. */
 const k = (...parts: readonly (string | null)[]): string => JSON.stringify(parts);
+
+/** Tillämpar valfri `offset`/`limit` på en redan filtrerad lista (insättningsordning). */
+function page<T>(items: readonly T[], p?: { limit?: number; offset?: number }): T[] {
+  const start = p?.offset ?? 0;
+  return items.slice(start, p?.limit === undefined ? undefined : start + p.limit);
+}
 
 // ---------------------------------------------------------------- kommandon
 
@@ -167,15 +176,14 @@ export function createMemoryExceptionRepository(): ExceptionRepository {
       return added;
     },
 
-    async list(tenantId, filter?: { status?: ExceptionStatus; payoutId?: string }) {
-      return [...rows.values()]
-        .filter(
-          (e) =>
-            e.tenantId === tenantId &&
-            (filter?.status === undefined || e.status === filter.status) &&
-            (filter?.payoutId === undefined || e.payoutId === filter.payoutId),
-        )
-        .map(copy);
+    async list(tenantId, filter?: { status?: ExceptionStatus; payoutId?: string; limit?: number; offset?: number }) {
+      const matching = [...rows.values()].filter(
+        (e) =>
+          e.tenantId === tenantId &&
+          (filter?.status === undefined || e.status === filter.status) &&
+          (filter?.payoutId === undefined || e.payoutId === filter.payoutId),
+      );
+      return page(matching, filter).map(copy);
     },
 
     async get(tenantId, id) {
@@ -207,10 +215,82 @@ export function createMemoryPayoutRepository(): PayoutRepository {
       const r = rows.get(k(tenantId, payoutId));
       return r ? copy(r) : null;
     },
-    async list(tenantId, filter?: { status?: PayoutStatus }) {
+    async list(tenantId, filter?: { status?: PayoutStatus; limit?: number; offset?: number }) {
+      const matching = [...rows.values()].filter(
+        (p) => p.tenantId === tenantId && (filter?.status === undefined || p.status === filter.status),
+      );
+      return page(matching, filter).map(copy);
+    },
+  };
+}
+
+// ---------------------------------------------------------------- förslag
+
+export function createMemoryProposalRepository(): ProposalRepository {
+  const rows = new Map<string, StoredProposal>();
+  return {
+    async upsert(tenantId, payoutId, result: ReconcileResult, now) {
+      const existing = rows.get(k(tenantId, payoutId));
+      if (existing && JSON.stringify(existing.result) === JSON.stringify(result)) return false;
+      rows.set(k(tenantId, payoutId), { tenantId, payoutId, status: result.status, result: copy(result), updatedAt: new Date(now) });
+      return true;
+    },
+    async list(tenantId, filter) {
       return [...rows.values()]
         .filter((p) => p.tenantId === tenantId && (filter?.status === undefined || p.status === filter.status))
+        .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || (a.payoutId < b.payoutId ? -1 : 1))
         .map(copy);
+    },
+    async get(tenantId, payoutId) {
+      const p = rows.get(k(tenantId, payoutId));
+      return p ? copy(p) : null;
+    },
+    async delete(tenantId, payoutId) {
+      return rows.delete(k(tenantId, payoutId));
+    },
+  };
+}
+
+// ---------------------------------------------------------------- skyddsgateway
+
+export function createMemoryGatewayGuardStore(): GatewayGuardStore {
+  const rows = new Map<string, { tenantId: string; key: string; state: 'started' | 'done'; externalId: string | null; startedAt: Date }>();
+  return {
+    async begin(tenantId, key, now) {
+      const r = rows.get(k(tenantId, key));
+      if (!r) {
+        rows.set(k(tenantId, key), { tenantId, key, state: 'started', externalId: null, startedAt: new Date(now) });
+        return { outcome: 'acquired' };
+      }
+      if (r.state === 'done') return { outcome: 'done', externalId: r.externalId ?? '' };
+      return { outcome: 'in_doubt', startedAt: new Date(r.startedAt) };
+    },
+    async complete(tenantId, key, externalId) {
+      const r = rows.get(k(tenantId, key));
+      if (r) {
+        r.state = 'done';
+        r.externalId = externalId;
+      }
+    },
+    async abort(tenantId, key) {
+      if (rows.get(k(tenantId, key))?.state === 'started') rows.delete(k(tenantId, key));
+    },
+    async resolve(tenantId, key, outcome) {
+      const r = rows.get(k(tenantId, key));
+      if (!r || r.state !== 'started') return false;
+      if (outcome.applied) {
+        r.state = 'done';
+        r.externalId = outcome.externalId;
+      } else {
+        rows.delete(k(tenantId, key));
+      }
+      return true;
+    },
+    async listInDoubt(tenantId) {
+      return [...rows.values()]
+        .filter((r) => r.state === 'started' && (tenantId === undefined || r.tenantId === tenantId))
+        .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+        .map((r) => ({ tenantId: r.tenantId, key: r.key, startedAt: new Date(r.startedAt) }));
     },
   };
 }
@@ -219,10 +299,14 @@ export function createMemoryStore(): {
   commands: CommandRepository;
   exceptions: ExceptionRepository;
   payouts: PayoutRepository;
+  proposals: ProposalRepository;
+  guard: GatewayGuardStore;
 } {
   return {
     commands: createMemoryCommandRepository(),
     exceptions: createMemoryExceptionRepository(),
     payouts: createMemoryPayoutRepository(),
+    proposals: createMemoryProposalRepository(),
+    guard: createMemoryGatewayGuardStore(),
   };
 }

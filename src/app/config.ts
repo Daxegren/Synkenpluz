@@ -11,6 +11,12 @@ const schema = z.object({
   HOST: z.string().default('0.0.0.0'),
   /** 0 stänger av körcykeln (bara API). */
   CYCLE_INTERVAL_MS: z.coerce.number().int().min(0).default(60_000),
+  /** Webhook (Slack-kompatibel) dit larm skickas. Utelämnad = larm bara loggas. Adressen är en hemlighet. */
+  ALERT_WEBHOOK_URL: z.string().url().optional(),
+  /** Prefix i larmmeddelanden, t.ex. miljön. */
+  ALERT_LABEL: z.string().max(40).optional(),
+  /** Bearer-token för GET /metrics. Utelämnad = /metrics finns inte. Minst 24 tecken. */
+  METRICS_TOKEN: z.string().min(24, 'METRICS_TOKEN måste vara minst 24 tecken').optional(),
 });
 
 export interface AppEnv {
@@ -20,6 +26,9 @@ export interface AppEnv {
   port: number;
   host: string;
   cycleIntervalMs: number;
+  alertWebhookUrl: string | undefined;
+  alertLabel: string | undefined;
+  metricsToken: string | undefined;
 }
 
 function decodeKey(value: string, label: string): Buffer {
@@ -52,5 +61,8 @@ export function parseEnv(env: Record<string, string | undefined>): AppEnv {
     port: e.PORT,
     host: e.HOST,
     cycleIntervalMs: e.CYCLE_INTERVAL_MS,
+    alertWebhookUrl: e.ALERT_WEBHOOK_URL,
+    alertLabel: e.ALERT_LABEL,
+    metricsToken: e.METRICS_TOKEN,
   };
 }

@@ -1,4 +1,4 @@
-import type { LedgerCommand, ReconcileException, ExceptionCode } from '../domain/types.js';
+import type { ExceptionCode, LedgerCommand, ReconcileException, ReconcileResult } from '../domain/types.js';
 
 /**
  * Gränssnitt (ports) mellan kärnan och omvärlden. Implementationer lever i
@@ -86,7 +86,8 @@ export interface ExceptionRepository {
   /** Idempotent per (tenant, payout, code, lineId): samma avvikelse läggs inte in två gånger. */
   add(tenantId: string, payoutId: string, exceptions: readonly ReconcileException[], now: Date): Promise<number>;
 
-  list(tenantId: string, filter?: { status?: ExceptionStatus; payoutId?: string }): Promise<StoredException[]>;
+  /** `limit`/`offset` är valfria (utan `limit` returneras allt). Ordningen är stabil, så sidor går att bläddra. */
+  list(tenantId: string, filter?: { status?: ExceptionStatus; payoutId?: string; limit?: number; offset?: number }): Promise<StoredException[]>;
 
   get(tenantId: string, id: string): Promise<StoredException | null>;
 
@@ -114,7 +115,7 @@ export interface PayoutRepository {
   /** Sparar senaste avstämningsresultat för utbetalningen (skriver över tidigare körning). */
   record(entry: PayoutRecord): Promise<void>;
   get(tenantId: string, payoutId: string): Promise<PayoutRecord | null>;
-  list(tenantId: string, filter?: { status?: PayoutStatus }): Promise<PayoutRecord[]>;
+  list(tenantId: string, filter?: { status?: PayoutStatus; limit?: number; offset?: number }): Promise<PayoutRecord[]>;
 }
 
 // ---------------------------------------------------------------- affärssystem
@@ -126,6 +127,12 @@ export class LedgerError extends Error {
     readonly retryable: boolean,
     /** Tidigast när ett nytt försök är lämpligt (t.ex. från Retry-After). */
     readonly retryAfterMs?: number,
+    /**
+     * true när det är SÄKERT att kommandot inte utfördes i affärssystemet (t.ex. avvisat som ogiltigt,
+     * rate-limitat före behandling, eller ingen anslutning kunde upprättas). false när utfallet är
+     * okänt (timeout, 5xx, avbruten anslutning). Skyddsgatewayen (GuardedLedgerGateway) bygger på detta.
+     */
+    readonly notApplied: boolean = false,
   ) {
     super(message);
     this.name = 'LedgerError';
@@ -171,9 +178,56 @@ export interface Repositories {
   exceptions: ExceptionRepository;
   payouts: PayoutRepository;
   audit: AuditLog;
+  proposals: ProposalRepository;
 }
 
 /** Kör `fn` atomiskt: allt som skrivs via `repos` sparas tillsammans eller inte alls. */
 export interface UnitOfWork {
   run<T>(fn: (repos: Repositories) => Promise<T>): Promise<T>;
+}
+
+// ---------------------------------------------------------------- förslag (dry_run)
+
+export interface StoredProposal {
+  tenantId: string;
+  payoutId: string;
+  status: ReconcileResult['status'];
+  /** Hela förslaget: kommandon och avvikelser som skulle ha skapats i live-läge. */
+  result: ReconcileResult;
+  updatedAt: Date;
+}
+
+/**
+ * Sparade dry_run-förslag, så att en människa (kunden eller deras redovisningskonsult) kan granska
+ * vad som SKULLE bokföras innan kunden går live. Ett förslag per utbetalning, det senaste gäller.
+ */
+export interface ProposalRepository {
+  /** Sparar förslaget. Returnerar true om det är nytt eller skiljer sig från det som låg där. */
+  upsert(tenantId: string, payoutId: string, result: ReconcileResult, now: Date): Promise<boolean>;
+  list(tenantId: string, filter?: { status?: ReconcileResult['status'] }): Promise<StoredProposal[]>;
+  get(tenantId: string, payoutId: string): Promise<StoredProposal | null>;
+  /** Tar bort förslaget (t.ex. när utbetalningen bokförts på riktigt). */
+  delete(tenantId: string, payoutId: string): Promise<boolean>;
+}
+
+// ---------------------------------------------------------------- skyddsgateway
+
+export type GuardBegin =
+  | { outcome: 'acquired' }
+  | { outcome: 'done'; externalId: string }
+  /** Ett tidigare försök startade men blev aldrig bekräftat. Utfallet är okänt. */
+  | { outcome: 'in_doubt'; startedAt: Date };
+
+/** Journal över gateway-anrop, så att ett kommando aldrig skickas två gånger utan att man vet utfallet. */
+export interface GatewayGuardStore {
+  /** Atomiskt: reservera nyckeln, eller berätta vad som redan hänt med den. */
+  begin(tenantId: string, key: string, now: Date): Promise<GuardBegin>;
+  /** Anropet lyckades. */
+  complete(tenantId: string, key: string, externalId: string, now: Date): Promise<void>;
+  /** Anropet utfördes säkert INTE. Släpper nyckeln så att ett nytt försök är tillåtet. */
+  abort(tenantId: string, key: string): Promise<void>;
+  /** Mänsklig åtgärd efter kontroll i affärssystemet: avgör ett osäkert utfall. */
+  resolve(tenantId: string, key: string, outcome: { applied: true; externalId: string } | { applied: false }, now: Date): Promise<boolean>;
+  /** Alla osäkra anrop (att visa för en människa). */
+  listInDoubt(tenantId?: string): Promise<Array<{ tenantId: string; key: string; startedAt: Date }>>;
 }

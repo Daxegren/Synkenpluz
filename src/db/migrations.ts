@@ -135,6 +135,37 @@ export const migrations: readonly Migration[] = [
         for each statement execute function audit_log_immutable();
     `,
   },
+  {
+    id: '005_gateway_guard',
+    sql: `
+      -- Journal över gateway-anrop: 'started' skrivs före anropet, 'done' efter. Ett 'started' som aldrig
+      -- blir 'done' betyder att utfallet är okänt och måste avgöras innan kommandot får skickas igen.
+      create table gateway_guard (
+        tenant_id    text        not null,
+        key          text        not null,
+        state        text        not null check (state in ('started','done')),
+        external_id  text,
+        started_at   timestamptz not null,
+        completed_at timestamptz,
+        primary key (tenant_id, key)
+      );
+      create index gateway_guard_in_doubt on gateway_guard (state) where state = 'started';
+    `,
+  },
+  {
+    id: '006_dry_run_proposal',
+    sql: `
+      -- Sparade dry_run-förslag per utbetalning, för granskning före go-live.
+      create table dry_run_proposal (
+        tenant_id  text        not null,
+        payout_id  text        not null,
+        status     text        not null check (status in ('rejected','partial','complete')),
+        result     jsonb       not null,
+        updated_at timestamptz not null,
+        primary key (tenant_id, payout_id)
+      );
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {

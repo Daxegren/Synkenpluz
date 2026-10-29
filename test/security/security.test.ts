@@ -213,3 +213,27 @@ describe('databas: tenants, API-nycklar, connections', () => {
     await expect(repo.upsert('finns-inte', 'fortnox', { a: 'b' }, clock.now())).rejects.toThrow();
   });
 });
+
+describe('createDetailedAuthenticator', () => {
+  it('returnerar tenantId och offentligt nyckel-id, och samma avslag som createAuthenticator', async () => {
+    const { createDetailedAuthenticator } = await import('../../src/security/apiKeys.js');
+    const pepper = Buffer.alloc(32, 7);
+    const gen = generateApiKey(pepper);
+    const touched: string[] = [];
+    const store = {
+      findById: async (id: string) => (id === gen.id ? { id, tenantId: 'T1', hash: gen.hash, revokedAt: null, expiresAt: null, tenantStatus: 'active' as const } : null),
+      touchLastUsed: async (id: string) => void touched.push(id),
+    };
+    const clock = { now: () => new Date('2026-10-28T12:00:00Z') };
+    const auth = createDetailedAuthenticator({ store, pepper, clock });
+    expect(await auth(gen.rawKey)).toEqual({ tenantId: 'T1', keyId: gen.id });
+    expect(JSON.stringify(await auth(gen.rawKey))).not.toContain(gen.rawKey);
+    expect(touched).toEqual([gen.id, gen.id, gen.id]);
+    expect(await auth('synk_000000000000_' + 'a'.repeat(43))).toBeNull();
+    expect(await auth('skräp')).toBeNull();
+    const revoked = createDetailedAuthenticator({ store: { ...store, findById: async (id) => ({ ...(await store.findById(id))!, revokedAt: new Date(0) }) }, pepper, clock });
+    expect(await revoked(gen.rawKey)).toBeNull();
+    // bakåtkompatibel variant ger fortfarande bara tenantId
+    expect(await createAuthenticator({ store, pepper, clock })(gen.rawKey)).toBe('T1');
+  });
+});

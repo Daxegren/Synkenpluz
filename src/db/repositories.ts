@@ -14,6 +14,7 @@ import type {
   UnitOfWork,
 } from '../ports/index.js';
 import type { Db } from './db.js';
+import { createProposalRepository } from './proposals.js';
 
 interface CommandRow {
   id: string;
@@ -215,8 +216,9 @@ export function createExceptionRepository(db: Db): ExceptionRepository {
           where tenant_id = $1
             and ($2::text is null or status = $2)
             and ($3::text is null or payout_id = $3)
-          order by created_at, id`,
-        [tenantId, filter.status ?? null, filter.payoutId ?? null],
+          order by created_at, id
+          limit $4::int offset coalesce($5::int, 0)`,
+        [tenantId, filter.status ?? null, filter.payoutId ?? null, filter.limit ?? null, filter.offset ?? null],
       );
       return rows.map(toException);
     },
@@ -276,8 +278,10 @@ export function createPayoutRepository(db: Db): PayoutRepository {
     },
     async list(tenantId, filter = {}) {
       const rows = await db.query<PayoutRow>(
-        `select * from payout where tenant_id = $1 and ($2::text is null or status = $2) order by processed_at, payout_id`,
-        [tenantId, filter.status ?? null],
+        `select * from payout where tenant_id = $1 and ($2::text is null or status = $2)
+          order by processed_at, payout_id
+          limit $3::int offset coalesce($4::int, 0)`,
+        [tenantId, filter.status ?? null, filter.limit ?? null, filter.offset ?? null],
       );
       return rows.map(toPayout);
     },
@@ -308,6 +312,7 @@ export function createRepositories(db: Db): Repositories {
     exceptions: createExceptionRepository(db),
     payouts: createPayoutRepository(db),
     audit: createAuditLog(db),
+    proposals: createProposalRepository(db),
   };
 }
 

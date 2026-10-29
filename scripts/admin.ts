@@ -7,6 +7,18 @@ import pg from 'pg';
 import { z } from 'zod';
 import { parseEnv } from '../src/app/config.js';
 import { createConnectionRepository } from '../src/db/connections.js';
+import { createGatewayGuardStore } from '../src/db/gatewayGuard.js';
+import { createProposalRepository } from '../src/db/proposals.js';
+import {
+  applyRetention,
+  formatAge,
+  formatRetentionResult,
+  keyFingerprint,
+  parseInDoubtDecision,
+  parseRetentionArgs,
+  planRetention,
+  summarizeProposal,
+} from '../src/db/retention.js';
 import { createPgDb } from '../src/db/pg.js';
 import { migrate } from '../src/db/migrations.js';
 import { createAuditLog } from '../src/db/repositories.js';
@@ -24,7 +36,14 @@ const USAGE = `Kommandon:
   issue-key <tenant> [dagar]
   revoke-key <tenant> <nyckel-id>
   set-connection <tenant> <provider>     (JSON med uppgifter på stdin)
-  list-tenants`;
+  list-tenants
+  retention-plan [--succeeded-days N --exceptions-days N --proposals-days N --guard-days N]
+                                         (visar bara vad som skulle gallras, ändrar inget)
+  retention-apply [samma flaggor] --yes  (gallrar på riktigt; avbryts utan --yes)
+  list-in-doubt [tenant]                 (osäkra gateway-anrop: kund, nyckel, ålder)
+  resolve-in-doubt <tenant> <nyckel> <applied|not-applied> [externalId]
+                                         (efter kontroll i affärssystemet; applied kräver externalId)
+  list-proposals <tenant>                (sparade dry_run-förslag, utan belopp)`;
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -129,6 +148,52 @@ async function main() {
           'select id, name, status, mode, accounts is not null as configured from tenant order by id',
         );
         for (const r of rows) console.log(`${r.id}\t${r.name}\t${r.status}\t${r.mode}\tkontoplan: ${r.configured ? 'ja' : 'nej'}`);
+        break;
+      }
+      case 'retention-plan': {
+        const { policy } = parseRetentionArgs(args);
+        console.log(formatRetentionResult(await planRetention(db, policy, now), 'Skulle gallras (inget har ändrats):'));
+        break;
+      }
+      case 'retention-apply': {
+        const { policy, yes } = parseRetentionArgs(args);
+        if (!yes) {
+          throw new Error('Gallring raderar data permanent. Kör retention-plan först och lägg sedan till --yes för att genomföra.');
+        }
+        console.log(formatRetentionResult(await applyRetention(db, policy, now, 'admin-cli'), 'Gallrade:'));
+        break;
+      }
+      case 'list-in-doubt': {
+        const rows = await createGatewayGuardStore(db).listInDoubt(args[0]);
+        if (rows.length === 0) console.log('Inga osäkra anrop');
+        for (const r of rows) console.log(`${r.tenantId}\t${r.key}\t${formatAge(now.getTime() - r.startedAt.getTime())}`);
+        break;
+      }
+      case 'resolve-in-doubt': {
+        const tenantId = need(args[0], 'tenant');
+        const key = need(args[1], 'nyckel');
+        const decision = parseInDoubtDecision(args[2], args[3]);
+        const ok = await db.transaction(async (tx) => {
+          const resolved = await createGatewayGuardStore(tx).resolve(tenantId, key, decision, now);
+          if (resolved) {
+            // Ingen nyckel i klartext och inget externalId i loggen: bara en kort markör och utfallet.
+            await createAuditLog(tx).append(
+              { tenantId, actor: 'admin-cli', action: 'guard.resolved', details: { keyFingerprint: keyFingerprint(key), applied: decision.applied } },
+              now,
+            );
+          }
+          return resolved;
+        });
+        if (!ok) throw new Error('Hittade inget osäkert anrop med den nyckeln för kunden (redan avgjort?)');
+        console.log(decision.applied ? 'Markerat som utfört' : 'Markerat som ej utfört, nytt försök är tillåtet');
+        break;
+      }
+      case 'list-proposals': {
+        const proposals = await createProposalRepository(db).list(need(args[0], 'tenant'));
+        if (proposals.length === 0) console.log('Inga sparade förslag');
+        for (const p of proposals.map(summarizeProposal)) {
+          console.log(`${p.payoutId}\t${p.status}\tkommandon: ${p.commands}\tavvikelser: ${p.exceptionCodes.join(',') || '-'}\t${p.updatedAt.toISOString()}`);
+        }
         break;
       }
       default:

@@ -13,19 +13,25 @@ type ExecutedCommand = { tenantId: string; command: LedgerCommand; externalId: s
  * verifierad kunskap om Fortnox API här. Den efterliknar bara de egenskaper vi kräver av
  * en gateway: idempotens på `command.key`, och att fakturors tillstånd ändras av kommandon.
  *
- * Hjälpmetoder (`failNext`, `executed`, `vouchers`) finns för att kunna provocera fram fel
+ * Hjälpmetoder (`failNext`, `failAfterApplyNext`, `executed`, `vouchers`) finns för att kunna provocera fram fel
  * och granska resultat i tester.
  */
 export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
   private readonly invoices = new Map<string, Invoice>();
   private readonly byKey = new Map<string, ExecutedCommand>();
   private readonly failures: Array<LedgerError | Error> = [];
+  private readonly afterApplyFailures: Array<LedgerError | Error> = [];
   private counter = 0;
   /** Antal anrop till execute, inklusive de som blev uppslag av redan utförda nycklar. */
   calls = 0;
 
   constructor(options: FakeLedgerOptions = {}) {
     for (const invoice of options.invoices ?? []) this.invoices.set(invoice.id, { ...invoice });
+  }
+
+  /** Nästa anrop UTFÖRS i affärssystemet men kastar sedan detta fel (svaret "försvann"). Köas i ordning. */
+  failAfterApplyNext(error: LedgerError | Error): void {
+    this.afterApplyFailures.push(error);
   }
 
   /** Nästa anrop till execute kastar detta fel. Köas i ordning. */
@@ -93,6 +99,8 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
 
     const externalId = `EXT-${++this.counter}`;
     this.byKey.set(command.key, { tenantId, command, externalId });
+    const lostResponse = this.afterApplyFailures.shift();
+    if (lostResponse) throw lostResponse;
     return { externalId };
   }
 
