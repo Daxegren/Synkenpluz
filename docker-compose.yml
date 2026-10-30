@@ -1,0 +1,37 @@
+# Lokal körning och staging. I produktion: använd en hanterad Postgres och kör bara `app`.
+#   cp .env.example .env   (fyll i API_KEY_PEPPER och MASTER_KEYS)
+#   docker compose up --build
+# Adminverktyget körs i containern:
+#   docker compose run --rm app node dist/scripts/admin.js create-tenant kund1 "Kund AB"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: synkenpluz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-byt-mig}
+      POSTGRES_DB: synkenpluz
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synkenpluz -d synkenpluz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Överskriver DATABASE_URL i .env så att appen når databasen i compose-nätverket.
+      DATABASE_URL: postgres://synkenpluz:${POSTGRES_PASSWORD:-byt-mig}@db:5432/synkenpluz
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  dbdata:
