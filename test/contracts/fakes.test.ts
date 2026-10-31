@@ -6,7 +6,8 @@ import { FakePayoutSource } from '../../src/gateways/fakeSource.js';
 import { GuardedLedgerGateway } from '../../src/gateways/guarded.js';
 import { LedgerError, type LedgerGateway } from '../../src/ports/index.js';
 import { TestClock, makeInvoice, makePayout, payment } from '../helpers.js';
-import { invoiceReaderContract, ledgerGatewayContract, payoutSourceContract } from './ports.contract.js';
+import { FakeLedgerProvider } from '../../src/gateways/fakeProvider.js';
+import { invoiceReaderContract, ledgerGatewayContract, ledgerProviderContract, payoutSourceContract } from './ports.contract.js';
 
 /** De simulerade implementationerna måste själva klara kontrakten, annars bevisar sviterna ingenting. */
 
@@ -96,4 +97,17 @@ describe('GuardedLedgerGateway över ett naivt affärssystem', () => {
       }),
     };
   });
+});
+
+/** Fakeleverantören får bara lov att bryta kundens anslutning per kund, som en riktig adapter skulle. */
+class PerTenantProvider extends FakeLedgerProvider {
+  broken = new Set<string>();
+  override async checkConnection(tenantId: string) {
+    return this.broken.has(tenantId) ? { ok: false, problems: ['Token har gått ut'] } : super.checkConnection(tenantId);
+  }
+}
+
+ledgerProviderContract('FakeLedgerProvider', async () => {
+  const provider = new PerTenantProvider('fortnox');
+  return { provider, breakConnection: async (t) => void provider.broken.add(t), secret: 'HEMLIG-TOKEN' };
 });

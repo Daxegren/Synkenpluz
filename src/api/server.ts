@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import type { OnboardingService } from '../db/onboarding.js';
 import { registerWebUi } from '../web/serve.js';
 import type {
   AuditLog,
@@ -48,6 +49,8 @@ export interface ApiDeps {
    * direkt efter (inte atomiskt: misslyckas loggningen är avgörandet ändå sparat).
    */
   guardForUow?: (repos: Repositories) => GatewayGuardStore;
+  /** Onboarding: checklista, godkännande av go-live och anslutningstest. Saknas den finns inte /v1/onboarding-rutterna (404). */
+  onboarding?: OnboardingService;
   /** Kontrollerar att databasen svarar (kasta vid fel). Saknas den svarar /ready alltid 200. */
   ping?: () => Promise<void>;
   /** Bearer-token för /metrics. Saknas den, eller saknas `metrics`, finns rutten inte (404). */
@@ -134,6 +137,7 @@ const guardResolveBody = z
       ctx.addIssue({ code: 'custom', path: ['externalId'], message: 'får inte anges när applied är false' });
     }
   });
+const goLiveBody = z.strictObject({ approvedProposalCount: z.number().int().min(0).max(1_000_000) });
 const resolveBody = z.strictObject({
   status: z.enum(['resolved', 'dismissed']),
   note: z.string().trim().min(1, 'note får inte vara tom').max(2000, 'note får vara högst 2000 tecken'),
@@ -454,6 +458,38 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
         const p = await proposals.get(request.tenantId, payoutId);
         if (!p) throw new HttpError(404, 'not_found', 'Förslaget finns inte');
         return presentProposal(p);
+      });
+    }
+
+    const onboarding = deps.onboarding;
+    if (onboarding) {
+      v1.get('/onboarding', async (request) => {
+        const status = await onboarding.status(request.tenantId);
+        if (!status) throw new HttpError(404, 'not_found', 'Kunden finns inte');
+        return status;
+      });
+
+      v1.post('/onboarding/go-live', async (request) => {
+        const body = parse(goLiveBody, request.body, 'body');
+        const outcome = await onboarding.goLive(request.tenantId, body, request.actor);
+        switch (outcome.result) {
+          case 'ok':
+            return { mode: 'live' };
+          case 'not_found':
+            throw new HttpError(404, 'not_found', 'Kunden finns inte');
+          case 'already_live':
+            throw new HttpError(409, 'already_live', 'Kunden bokför redan på riktigt');
+          case 'not_ready':
+            throw new HttpError(409, 'not_ready', `Onboardingen är inte klar: ${outcome.blockers.join(', ')}`);
+          case 'stale_review':
+            throw new HttpError(409, 'stale_review', `Antalet förslag har ändrats (nu ${outcome.proposalCount}). Granska igen innan du godkänner`);
+        }
+      });
+
+      v1.post('/onboarding/check-connection', async (request) => {
+        const check = await onboarding.checkConnection(request.tenantId);
+        if (!check) throw new HttpError(404, 'not_found', 'Ingen leverantör av affärssystem är kopplad till tjänsten');
+        return check;
       });
     }
 

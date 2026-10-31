@@ -10,6 +10,7 @@ import {
   COMMAND_STATUS,
   EXCEPTION_INFO,
   EXCEPTION_STATUS,
+  ONBOARDING_PHASE,
   PAGES,
   PAYOUT_STATUS,
   ageText,
@@ -17,6 +18,7 @@ import {
   describeCommand,
   formatAmount,
   parseHash,
+  validateGoLive,
   validateGuardResolve,
   validateResolve,
   voucherBalance,
@@ -25,6 +27,7 @@ import {
 const KEY_STORE = 'synkenpluz.apiKey';
 const PAGE_LABEL = {
   oversikt: 'Översikt',
+  start: 'Kom igång',
   forslag: 'Förslag',
   utbetalningar: 'Utbetalningar',
   avvikelser: 'Avvikelser',
@@ -551,6 +554,127 @@ function resolveForm(e, refresh) {
   );
 }
 
+// --- kom igång (onboarding)
+async function startView() {
+  let status;
+  try {
+    status = await api('GET', '/v1/onboarding');
+  } catch (error) {
+    if (error.status === 404) return [h('p', { class: 'muted' }, 'Funktionen är inte aktiverad på servern.')];
+    throw error;
+  }
+  const phase = ONBOARDING_PHASE[status.phase] ?? { label: status.phase, tone: 'neutral', help: '' };
+
+  const steps = h(
+    'ol',
+    { class: 'steps' },
+    status.steps.map((step) =>
+      h(
+        'li',
+        {},
+        h('div', { class: 'row' }, badge(step.done ? 'ok' : 'warn', step.done ? 'Klart' : 'Återstår'), h('strong', {}, step.label)),
+        step.done || status.phase === 'live' ? null : h('p', { class: 'muted' }, step.hint),
+      ),
+    ),
+  );
+
+  return [
+    h('div', { class: 'row' }, badge(phase.tone, phase.label), h('span', { class: 'muted' }, phase.help)),
+    h('div', { class: 'card' }, h('h3', {}, 'Checklista'), steps),
+    status.ledger ? ledgerCard(status.ledger) : null,
+    status.phase === 'review' ? goLiveCard(status) : null,
+    status.phase === 'live' ? h('div', { class: 'alert ok' }, 'Kunden bokför på riktigt. Nya utbetalningar bokförs i affärssystemet så fort de hittats.') : null,
+  ];
+}
+
+function ledgerCard(ledger) {
+  const result = h('div', { role: 'status' });
+  const button = h('button', { class: 'btn ghost', type: 'button' }, 'Testa anslutningen');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    result.replaceChildren(h('p', { class: 'muted' }, 'Testar…'));
+    try {
+      const check = await api('POST', '/v1/onboarding/check-connection');
+      result.replaceChildren(
+        check.ok
+          ? h('div', { class: 'alert ok' }, 'Anslutningen fungerar.')
+          : h('div', { class: 'alert bad', role: 'alert' }, h('strong', {}, 'Anslutningen fungerar inte.'), h('ul', {}, check.problems.map((p) => h('li', {}, p)))),
+      );
+    } catch (error) {
+      result.replaceChildren(errorBox(error));
+    }
+    button.disabled = false;
+  });
+  const can = (value) => badge(value ? 'ok' : 'warn', value ? 'Ja' : 'Nej');
+  const c = ledger.capabilities;
+  return h(
+    'div',
+    { class: 'card' },
+    h('h3', {}, `Affärssystem: ${ledger.provider}`),
+    table(
+      ['Förmåga', 'Stöds'],
+      [
+        ['Söka faktura på referens', c.searchByReference],
+        ['Idempotenta skrivningar', c.idempotentWrites],
+        ['Avgöra osäkra utfall själv', c.verifyByReference],
+        ['Kreditera fakturor', c.creditInvoice],
+        ['Skapa verifikat', c.postVoucher],
+      ].map(([label, value]) => h('tr', {}, h('td', {}, label), h('td', {}, can(value)))),
+    ),
+    ledger.notes.length > 0 ? h('div', { class: 'alert warn' }, h('ul', {}, ledger.notes.map((n) => h('li', {}, n)))) : null,
+    button,
+    result,
+  );
+}
+
+function goLiveCard(status) {
+  const { count, withExceptions } = status.proposals;
+  const error = h('p', { class: 'error', role: 'alert' });
+  const reviewed = h('input', { id: 'reviewed', type: 'checkbox' });
+  const submit = h('button', { class: 'btn danger', type: 'submit' }, 'Godkänn och gå live');
+  return h(
+    'form',
+    {
+      novalidate: true,
+      class: 'card',
+      onsubmit: async (event) => {
+        event.preventDefault();
+        error.textContent = '';
+        const problem = validateGoLive({ reviewed: reviewed.checked });
+        if (problem) {
+          error.textContent = problem;
+          return;
+        }
+        const ok = await confirmDialog({
+          title: 'Bekräfta: gå live',
+          body: [
+            h('p', {}, `Alla ${count} förslag bokförs på riktigt i affärssystemet, och därefter varje ny utbetalning.`),
+            h('p', {}, h('strong', {}, 'Det går inte att ångra härifrån. '), 'Åtgärden loggas med ditt nyckel-id.'),
+          ],
+          confirmLabel: 'Ja, gå live',
+          danger: true,
+        });
+        if (!ok) return;
+        submit.disabled = true;
+        try {
+          await api('POST', '/v1/onboarding/go-live', { approvedProposalCount: count });
+          toast('Kunden är live.');
+          await route();
+        } catch (err) {
+          error.textContent = err instanceof ApiError ? err.message : 'Något gick fel.';
+          submit.disabled = false;
+        }
+      },
+    },
+    h('h3', {}, 'Godkänn och gå live'),
+    h('p', {}, `${count} förslag väntar. `, withExceptions > 0 ? h('strong', {}, `${withExceptions} av dem har avvikelser som blir öppna avvikelser när de bokförs. `) : null, link('#/forslag', 'Granska förslagen')),
+    h('div', { class: 'alert warn' }, 'Att godkänna betyder att allt du har granskat bokförs på riktigt, inklusive utbetalningar från testperioden. Är du osäker: avstå och fråga redovisningskonsulten.'),
+    h('label', { class: 'choice', for: 'reviewed' }, reviewed, 'Jag har granskat förslagen och de stämmer.'),
+    error,
+    submit,
+  );
+}
+
 // --- osäkra anrop
 async function inDoubtView() {
   const intro = h(
@@ -628,6 +752,7 @@ function inDoubtItem(g) {
 
 const VIEWS = {
   oversikt: () => load('Översikt', overviewView),
+  start: () => load('Kom igång', startView),
   forslag: ({ id }) => load(id ? `Förslag ${id}` : 'Förslag', () => (id ? proposalDetailView(id) : proposalsView())),
   utbetalningar: ({ id }) => load(id ? `Utbetalning ${id}` : 'Utbetalningar', () => (id ? payoutDetailView(id) : payoutsView())),
   avvikelser: () => load('Avvikelser', exceptionsView),

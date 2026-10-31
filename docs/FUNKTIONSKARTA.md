@@ -153,7 +153,10 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Stänga avvikelse | `POST /v1/exceptions/:id/resolve`, revisionsloggas atomiskt | `buildServer` | `test/api/`, `test/hardening.test.ts` | ✅ |
 | Köa om dött kommando | `POST /v1/commands/:id/retry`, revisionsloggas atomiskt | `buildServer`, `requeue` | `test/app.test.ts` | ✅ |
 | Administrera kunder | Skapa kund, kontoplan, läge, nycklar, kopplingar via CLI | `scripts/admin.ts` | `scripts/smoke-steps.sh` | ✅ |
-| Webbgränssnitt för granskning | Enkel webbsida på `/app` där en redovisningskonsult eller handläggare loggar in med API-nyckel, granskar förslag och utbetalningar, stänger avvikelser, köar om döda kommandon och avgör osäkra anrop. Svenska, tillgängligt, mobilanpassat, ljust/mörkt läge | `web/`, `src/web/serve.ts` | `test/web.test.ts`, `test/web.e2e.test.ts` (riktig webbläsare) | ✅ |
+| Webbgränssnitt för granskning | Enkel webbsida på `/app` där en redovisningskonsult eller handläggare loggar in med API-nyckel, följer onboarding och godkänner go-live (sidan *Kom igång*), granskar förslag och utbetalningar, stänger avvikelser, köar om döda kommandon och avgör osäkra anrop. Svenska, tillgängligt, mobilanpassat, ljust/mörkt läge | `web/`, `src/web/serve.ts` | `test/web.test.ts`, `test/web.e2e.test.ts` (riktig webbläsare) | ✅ |
+| Onboarding av ny kund | Checklista per kund (`GET /v1/onboarding`): aktiv kund, kontoplan, personlig nyckel, koppling till betalleverantör och affärssystem, testkörning gjord, inga osäkra anrop. Fasen är `setup`, `review` eller `live`. Visas på sidan *Kom igång* i webbgränssnittet | `evaluateOnboarding`, `PAYOUT_PROVIDERS`, `LEDGER_PROVIDERS` i `src/service/onboarding.ts`, `createOnboardingService` i `src/db/onboarding.ts` | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
+| Godkänna go-live | `POST /v1/onboarding/go-live` byter kund från dry_run till live efter att checklistan är klar. Kräver `approvedProposalCount` lika med antalet förslag just nu (annars `stale_review`), så att godkännaren har sett det som bokförs. Lägesbyte och revisionspost `tenant.go_live` skrivs atomiskt, och kundens rad låses så att två godkännanden samtidigt ger ett | `createOnboardingService` (`goLive`) | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
+| Beskriva och testa affärssystemet | `LedgerProvider` anger vad ett affärssystem kan (`LedgerCapabilities`: söka på referens, idempotens, verifiera osäkra utfall, kreditera, verifikat) och har ett skrivskyddat anslutningstest (`POST /v1/onboarding/check-connection`). `describeCapabilities` översätter luckor till konsekvenser för en handläggare. Gör Fortnox, Spiris och Briox utbytbara i checklistan | `LedgerProvider` i `src/ports/ledger.ts`, `describeCapabilities` | `ledgerProviderContract` i `test/contracts/ports.contract.ts` | ✅ (inga riktiga adaptrar än) |
 | Granska dry_run-förslag | `GET /v1/proposals`, `GET /v1/proposals/:payoutId` och adminkommandot `list-proposals` (utan belopp) | `buildServer`, `summarizeProposal` | `test/api/extended.test.ts`, `test/retention.test.ts` | ✅ |
 | Gallring (GDPR) | Torrkörning och körning av gallring enligt säkra regler. Rör aldrig öppet, dött, pågående, `audit_log` eller `payout` | `planRetention`, `applyRetention` i `src/db/retention.ts`, adminkommandona `retention-plan`/`retention-apply` | `test/retention.test.ts` | ✅ (körs manuellt) |
 | Demo | Berättande genomkörning med simulerade system | `scripts/demo.ts` | körs manuellt (`npm run demo`) | ✅ |
@@ -204,6 +207,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | Fil | Ansvar | Innehåll |
 | --- | --- | --- |
 | `src/ports/index.ts` | Skriv- och lagringsportar | `CommandRepository` (enqueue, claimDue, markSucceeded, markFailed, releaseStale, listByPayout, countDead, requeue) · `ExceptionRepository` (add, list, get, resolve) · `PayoutRepository` (record, get, list) · `AuditLog` (append, list) · `UnitOfWork` (run) · `LedgerGateway` (execute, **måste vara idempotent på nyckeln eller köras bakom skyddsgatewayen**) · `LedgerError` (`retryable`, `retryAfterMs`, `notApplied`) · `ProposalRepository` · `GatewayGuardStore` · `Clock` |
+| `src/ports/ledger.ts` | Beskrivning av ett affärssystem för onboarding | `LedgerProvider` (provider, capabilities, checkConnection) · `LedgerCapabilities` · `ConnectionCheck` |
 | `src/ports/sources.ts` | Läsportar och konfiguration | `PayoutSource` (listPayoutsSince, getPayout) · `InvoiceReader` (findByReferences) · `TenantConfigProvider` · `SyncStateStore` · `TenantConfig` |
 
 ### `src/service/`: användningsfall
@@ -212,6 +216,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- | --- |
 | `src/service/processPayout.ts` | Avstäm en utbetalning och spara atomiskt | `processPayout` · *withConflicts, canonical, summarize* |
 | `src/service/syncTenant.ts` | Hämta nya + återuppta delvis/avvisade för en kund | `syncTenant` · *count* |
+| `src/service/onboarding.ts` | Vad som återstår innan en kund kan gå live (rena funktioner) | `evaluateOnboarding` · `describeCapabilities` · konstanterna `PAYOUT_PROVIDERS`, `LEDGER_PROVIDERS` |
 
 ### `src/executor/`: kön till bokföring
 
@@ -286,6 +291,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- | --- |
 | `src/gateways/guarded.ts` | **Skyddsgateway** runt varje riktig gateway: journalför, avgör osäkra utfall, skickar aldrig om på gissning | `GuardedLedgerGateway` |
 | `src/gateways/fakeGuard.ts` | Journal i minnet (tester, demo) | `MemoryGatewayGuardStore` |
+| `src/gateways/fakeProvider.ts` | Simulerad `LedgerProvider` med styrbart anslutningstest | `FakeLedgerProvider` (setResult, checks) · konstanten `FULL_CAPABILITIES` |
 | `src/gateways/fake.ts` | Simulerat affärssystem, idempotent på nyckel | `FakeLedgerGateway` (failNext, failAfterApplyNext, addInvoice, invoice, executed, vouchers) |
 | `src/gateways/fakeSource.ts` | Simulerad leverantör, konfiguration och synkstatus | `FakePayoutSource`, `MemoryTenantConfig`, `MemorySyncState` |
 | `src/testing/memory.ts` | Minnesversioner av repositorierna (för API-tester) | `createMemoryStore`, `createMemoryCommandRepository`, `createMemoryExceptionRepository`, `createMemoryPayoutRepository`, `createMemoryProposalRepository`, `createMemoryGatewayGuardStore`. Saknar ordning per utbetalning, använd PGlite när det spelar roll |
@@ -385,6 +391,9 @@ erDiagram
 | `GET /v1/payouts` | Lista utbetalningar (`status`) |
 | `GET /v1/proposals` | Lista sparade dry_run-förslag (`status`) |
 | `GET /v1/proposals/:payoutId` | Ett förslag med kommandon och avvikelser |
+| `GET /v1/onboarding` | Checklista och fas för kunden, plus affärssystemets förmågor om en leverantör är kopplad |
+| `POST /v1/onboarding/go-live` | Godkänn att kunden går live (`approvedProposalCount`). Loggas |
+| `POST /v1/onboarding/check-connection` | Skrivskyddat test av anslutningen till affärssystemet |
 | `GET /v1/guard/in-doubt` | Anrop till affärssystemet med okänt utfall |
 | `POST /v1/guard/resolve` | Avgör ett okänt utfall (utfört/ej utfört). Loggas |
 | `GET /ready` | Öppen beredskapskoll mot databasen (200/503) |
@@ -417,7 +426,7 @@ erDiagram
 
 ### Revisionsposter (`audit_log.action`)
 
-`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set` · `guard.resolved` · `retention.applied`. Innehåller aldrig belopp, referenser eller fria anteckningar.
+`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set` · `tenant.go_live` · `guard.resolved` · `retention.applied`. Innehåller aldrig belopp, referenser eller fria anteckningar.
 
 ## 7. Koder och tillstånd
 
@@ -483,7 +492,9 @@ Tillståndsdiagram och regler: [ARCHITECTURE.md](ARCHITECTURE.md) avsnitt 4.
 | `test/proposals.test.ts` | Sparade dry_run-förslag |
 | `test/guarded.test.ts` | Skyddsgatewayen mot ett affärssystem utan idempotens (minne och Postgres-schema) |
 | `test/guard-app.test.ts` | Skyddet genom hela produkten och API:t, inkl. mänskligt avgörande |
-| `test/contracts/ports.contract.ts` | Kontraktssviter för `PayoutSource`, `InvoiceReader`, `LedgerGateway` |
+| `test/contracts/ports.contract.ts` | Kontraktssviter för `PayoutSource`, `InvoiceReader`, `LedgerGateway`, `LedgerProvider` |
+| `test/onboarding.test.ts` | Onboarding: checklistan, go-live (atomiskt, samtidigt, inaktuell granskning), anslutningstest och API-rutterna |
+| `test/pg/onboarding.pg.test.ts` | Onboardingens SQL och samtidiga godkännanden mot riktig Postgres (kräver `PG_TEST_URL`) |
 | `test/contracts/fakes.test.ts` | De simulerade implementationerna och skyddsgatewayen mot kontrakten |
 | `test/notify.test.ts` | Larmutskick och dämpning |
 | `test/config.test.ts` | Miljökonfigurationen, inkl. att inga hemligheter läcker |

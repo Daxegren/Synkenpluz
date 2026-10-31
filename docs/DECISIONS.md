@@ -148,3 +148,13 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 ## ADR-013: Gallring med konservativa regler, manuell körning
 
 **Beslut:** gallring (`src/db/retention.ts`) raderar bara klara, gamla utbetalningars kommandon samt avslutade avvikelser, förslag och klara guard-poster. Aldrig öppet, dött, pågående, osäkert, `audit_log` eller `payout`. Torrkörning först, `--yes` krävs. **Skäl:** bokföringslagen kräver långa lagringstider och en felaktig radering går inte att ångra. **Kvarstår:** gränsvärden ska fastställas med en redovisningskonsult, och körningen är inte schemalagd.
+
+## ADR-014: Onboarding som checklista och godkännande, inte som engångsskript
+
+**Bakgrund:** en ny kund kräver fem adminkommandon i terminal, och bytet till live gjordes med `set-mode` utan något spår av vem som granskat vad. Det skalar inte, och godkännandet är den mest riskfyllda åtgärden i hela flödet: allt som granskats bokförs på riktigt.
+
+**Beslut:** (1) Onboardingens tillstånd *beräknas* av rena funktioner (`evaluateOnboarding`) ur fakta i databasen, i stället för att lagras som ett eget tillstånd som kan komma ur synk. (2) Go-live är ett API-anrop som kräver att godkännaren anger hur många förslag hen har sett; stämmer inte antalet längre vägras det (`stale_review`). Lägesbyte och revisionspost `tenant.go_live` skrivs i samma transaktion med kundens rad låst. (3) Affärssystemen beskrivs av `LedgerProvider` med `LedgerCapabilities`, så att checklistan kan säga ärligt vad en adapter inte kan, och så att Fortnox, Spiris och Briox har samma kontrakt.
+
+**Alternativ:** ett lagrat onboardingtillstånd (kan driva isär från verkligheten, till exempel om en nyckel återkallas efteråt), eller att låta `set-mode` vara enda vägen (inget spår, ingen kontroll). Vi behöll `set-mode` för drift och nödfall.
+
+**Konsekvens:** godkännandet är bara så starkt som nyckeln: det finns inga roller, så vem som helst med kundens nyckel kan godkänna. Roller och en särskild godkännandebehörighet är kvar att bygga. Antalet förslag är ett grovt men billigt skydd mot att godkänna något som ändrats; det visar inte *vilka* förslag som ändrats.
