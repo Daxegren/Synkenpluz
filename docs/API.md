@@ -148,6 +148,16 @@ curl -s -H "x-api-key: $API_KEY" "http://localhost:3000/v1/proposals?status=part
 
 Svar `200`: `{ "items": [ { "payoutId": "P1", "status": "partial", "commandCount": 2, "exceptionCount": 1, "updatedAt": "..." } ], "limit": 100, "offset": 0, "hasMore": false }`.
 
+### `GET /v1/proposals/summary`
+
+Träffsäkerhet över alla sparade dry_run-förslag. **Bara antal**, inga belopp, referenser eller fakturanummer. Finns bara om `proposals` är kopplad (annars `404`).
+
+Svar `200`: `{ "payouts": { "total", "complete", "partial", "rejected" }, "lines": { "matched", "unmatched" }, "lineMatchRate": 0.83, "fullyAutomaticRate": 0.5, "exceptionsByCode": [ { "code": "NO_MATCH", "count": 4 } ] }`. Andelarna är `null` när det inte finns något att räkna på (inte 0). Avvikelsekodernas betydelse står i [RUNBOOK.md](RUNBOOK.md).
+
+### `GET /v1/proposals/:payoutId/export.csv`
+
+Underlag för redovisningskonsulten: betalningar, krediteringar, verifikatrader och avvikelser som CSV (`text/csv; charset=utf-8`, semikolon som separator, decimalkomma, BOM, CRLF). Idempotensnycklar ingår inte. Text som börjar med `=`, `+`, `-` eller `@` får en inledande apostrof så att kalkylprogram inte tolkar den som formel. Svarar med `content-disposition: attachment` och `cache-control: no-store`. `404` om förslaget inte finns (eller tillhör en annan kund).
+
 ### `GET /v1/proposals/:payoutId`
 
 Ett förslag i detalj: `commands` (utan idempotensnyckel) och `exceptions`. `404` om förslag saknas. Förslaget försvinner när utbetalningen bokförs live.
@@ -194,11 +204,15 @@ curl -s -X POST -H "x-api-key: $API_KEY" http://localhost:3000/v1/commands/$COMM
 
 Svar `200`: `{"id": "...", "status": "pending"}`. `409` om kommandot inte finns, tillhör en annan kund eller inte är dött (ett kommando som är `pending`, `failed`, `in_progress` eller `succeeded` kan inte köas om). Åtgärden revisionsloggas som `command.requeued`.
 
+### Roller
+
+Varje nyckel har en roll: `viewer` (läsa), `operator` (även hantera avvikelser, köa om, avgöra osäkra anrop, testa anslutningen) eller `approver` (även godkänna go-live). Saknas rollen räcker den inte till en åtgärd svarar API:t `403 {"error":{"code":"forbidden","message":"Åtgärden kräver rollen approver. Din nyckel har rollen operator"}}`. Rollen kontrolleras före validering av body. Rutterna `POST /v1/exceptions/:id/resolve`, `POST /v1/commands/:id/retry`, `POST /v1/guard/resolve` och `POST /v1/onboarding/check-connection` kräver `operator`, `POST /v1/onboarding/go-live` kräver `approver`. Alla `GET` kräver bara en giltig nyckel.
+
 ### `GET /v1/onboarding`
 
 Kundens onboarding: vad som återstår innan förslagen kan godkännas. Finns bara om onboarding-tjänsten är kopplad (annars `404`).
 
-Svar `200`: `{ "tenantStatus", "mode", "phase": "setup" | "review" | "live", "steps": [ { "id", "label", "done", "hint" } ], "blockers": ["accounts", ...], "proposals": { "count", "withExceptions" }, "ledger": { "provider", "capabilities", "notes" } }`. `ledger` finns bara om en leverantör av affärssystem är kopplad. Stegen är `tenant_active`, `accounts`, `api_key`, `payout_connection`, `ledger_connection`, `dry_run` och `in_doubt`. `blockers` är tom i faserna `review` och `live`.
+Svar `200`: `{ "tenantStatus", "mode", "phase": "setup" | "review" | "live", "steps": [ { "id", "label", "done", "hint" } ], "blockers": ["accounts", ...], "proposals": { "count", "withExceptions" }, "ledger": { "provider", "capabilities", "notes" } }`. `ledger` finns bara om en leverantör av affärssystem är kopplad. `you` är `{ "role", "canApprove" }` för nyckeln som anropar, så att gränssnittet kan förklara varför en knapp saknas. Stegen är `tenant_active`, `accounts`, `api_key`, `payout_connection`, `ledger_connection`, `dry_run` och `in_doubt`. `blockers` är tom i faserna `review` och `live`.
 
 ### `POST /v1/onboarding/go-live`
 

@@ -17,6 +17,7 @@ Det systemet **inte** kan: prata med Mondido eller Fortnox. Allt mot omvärlden 
 | [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Rad 1 nedan: vilka data finns och i vilket format |
 | [FORTNOX_TESTPLAN.md](FORTNOX_TESTPLAN.md) | Den som har sandboxen | Rad 2 och riskerna nedan (dubbelräknad bank, idempotens) |
 | [BESLUT_REDOVISNING.md](BESLUT_REDOVISNING.md) | Redovisningskonsult | Rad 4 och 5 nedan samt gallringstider |
+| [KONKURRENTANALYS.md](KONKURRENTANALYS.md) | Beslutsfattare | Läs först: Mondido har redan en Fortnox-koppling, och vad som skiljer oss |
 | [BRIOX_DATAKONTRAKT.md](BRIOX_DATAKONTRAKT.md) | Den som har Briox dokumentation | 14 frågor som avgör en Briox-adapter. Inget verifierat än |
 | [DEPLOY.md](DEPLOY.md) | Den som driftsätter | Hur tjänsten körs och sätts i skarp drift |
 
@@ -48,7 +49,7 @@ Likaså: gatewayens **idempotens**. Den är nu skyddad av `GuardedLedgerGateway`
 
 ## Redan känt och medvetet uppskjutet
 
-- Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor. Godkännande av go-live finns (sidan *Kom igång*, `POST /v1/onboarding/go-live`), men utan roller: vem som helst med kundens nyckel kan godkänna. `set-mode` finns kvar för drift.
+- Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor. Godkännande av go-live finns (sidan *Kom igång*, `POST /v1/onboarding/go-live`) och kräver rollen `approver`. Rollen hör till en nyckel, inte en person, och det finns ingen tvåpersonsregel; användarkonton och SSO saknas. `set-mode` finns kvar för drift.
 - Larm skickas via webhook (`ALERT_WEBHOOK_URL`) men inte via e-post eller pager.
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
 - Rate limiting i API:t ligger i processminne och delas inte mellan instanser. Paginering av förslag och osäkra anrop sker i minnet.

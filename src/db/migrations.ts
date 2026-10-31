@@ -166,6 +166,15 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    id: '007_api_key_role',
+    sql: `
+      -- Roll per nyckel: viewer får läsa, operator får även hantera avvikelser och osäkra anrop, approver får även
+      -- godkänna go-live. Befintliga nycklar blir operator, alltså samma rättigheter som tidigare minus go-live.
+      alter table api_key add column role text not null default 'operator'
+        check (role in ('viewer','operator','approver'));
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {

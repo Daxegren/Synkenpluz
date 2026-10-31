@@ -20,3 +20,5 @@ export function validateResolve(input: { status?: string | undefined; note?: str
 export function validateGuardResolve(input: { applied?: boolean | undefined; externalId?: string | undefined }): string | null;
 export const ONBOARDING_PHASE: Record<string, { label: string; tone: Tone; help: string }>;
 export function validateGoLive(input: { reviewed?: boolean | undefined }): string | null;
+export const ROLE_LABEL: Record<string, string>;
+export function formatPercent(rate: number | null | undefined): string;

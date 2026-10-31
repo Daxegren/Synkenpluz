@@ -1,4 +1,4 @@
-import { generateApiKey, type ApiKeyRecord, type ApiKeyStore } from '../security/apiKeys.js';
+import { DEFAULT_API_KEY_ROLE, generateApiKey, isApiKeyRole, type ApiKeyRecord, type ApiKeyRole, type ApiKeyStore } from '../security/apiKeys.js';
 import type { Db } from './db.js';
 
 export type TenantStatus = 'active' | 'suspended';
@@ -71,11 +71,12 @@ export interface ApiKeyInfo {
   revokedAt: Date | null;
   expiresAt: Date | null;
   lastUsedAt: Date | null;
+  role: ApiKeyRole;
 }
 
 export interface ApiKeyRepository extends ApiKeyStore {
   /** Skapar en nyckel. `rawKey` returneras här och aldrig mer. */
-  issue(tenantId: string, opts: { expiresAt?: Date | null }, now: Date, pepper: Buffer): Promise<{ id: string; rawKey: string }>;
+  issue(tenantId: string, opts: { expiresAt?: Date | null; role?: ApiKeyRole }, now: Date, pepper: Buffer): Promise<{ id: string; rawKey: string }>;
   /** Tenant-scopead. Returnerar false om nyckeln inte tillhör tenant eller redan är återkallad. */
   revoke(tenantId: string, id: string, now: Date): Promise<boolean>;
   list(tenantId: string): Promise<ApiKeyInfo[]>;
@@ -88,15 +89,18 @@ interface ApiKeyRow {
   revoked_at: Date | null;
   expires_at: Date | null;
   last_used_at: Date | null;
+  role: string;
 }
 
 export function createApiKeyRepository(db: Db): ApiKeyRepository {
   return {
     async issue(tenantId, opts, now, pepper) {
       const key = generateApiKey(pepper);
+      const role = opts.role ?? DEFAULT_API_KEY_ROLE;
+      if (!isApiKeyRole(role)) throw new Error('Ogiltig roll');
       await db.query(
-        'insert into api_key (id, tenant_id, hash, created_at, expires_at) values ($1, $2, $3, $4, $5)',
-        [key.id, tenantId, key.hash, now, opts.expiresAt ?? null],
+        'insert into api_key (id, tenant_id, hash, created_at, expires_at, role) values ($1, $2, $3, $4, $5, $6)',
+        [key.id, tenantId, key.hash, now, opts.expiresAt ?? null, role],
       );
       return { id: key.id, rawKey: key.rawKey };
     },
@@ -109,7 +113,7 @@ export function createApiKeyRepository(db: Db): ApiKeyRepository {
     },
     async list(tenantId) {
       const rows = await db.query<ApiKeyRow>(
-        `select id, tenant_id, created_at, revoked_at, expires_at, last_used_at
+        `select id, tenant_id, created_at, revoked_at, expires_at, last_used_at, role
            from api_key where tenant_id = $1 order by created_at, id`,
         [tenantId],
       );
@@ -120,6 +124,7 @@ export function createApiKeyRepository(db: Db): ApiKeyRepository {
         revokedAt: r.revoked_at,
         expiresAt: r.expires_at,
         lastUsedAt: r.last_used_at,
+        role: isApiKeyRole(r.role) ? r.role : DEFAULT_API_KEY_ROLE,
       }));
     },
     async findById(id): Promise<ApiKeyRecord | null> {
@@ -130,8 +135,9 @@ export function createApiKeyRepository(db: Db): ApiKeyRepository {
         revoked_at: Date | null;
         expires_at: Date | null;
         tenant_status: TenantStatus;
+        role: string;
       }>(
-        `select k.id, k.tenant_id, k.hash, k.revoked_at, k.expires_at, t.status as tenant_status
+        `select k.id, k.tenant_id, k.hash, k.revoked_at, k.expires_at, k.role, t.status as tenant_status
            from api_key k join tenant t on t.id = k.tenant_id where k.id = $1`,
         [id],
       );
@@ -144,6 +150,8 @@ export function createApiKeyRepository(db: Db): ApiKeyRepository {
         revokedAt: r.revoked_at,
         expiresAt: r.expires_at,
         tenantStatus: r.tenant_status,
+        // En okänd roll i databasen ger aldrig mer än den lägsta, hellre för lite än för mycket.
+        role: isApiKeyRole(r.role) ? r.role : 'viewer',
       };
     },
     async touchLastUsed(id, now) {

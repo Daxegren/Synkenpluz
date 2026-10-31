@@ -12,6 +12,8 @@ import {
   formatAmount,
   parseHash,
   ONBOARDING_PHASE,
+  ROLE_LABEL,
+  formatPercent,
   validateGoLive,
   validateGuardResolve,
   validateResolve,
@@ -228,6 +230,15 @@ describe('gränssnittets logik (web/lib.js)', () => {
     expect(validateGoLive({ reviewed: true })).toBeNull();
     expect(validateGoLive({ reviewed: false })).toContain('granskat');
     expect(validateGoLive({})).toContain('granskat');
+  });
+
+  it('formaterar andelar och namnger rollerna', () => {
+    expect(formatPercent(0.834)).toBe('83 %');
+    expect(formatPercent(1)).toBe('100 %');
+    expect(formatPercent(0)).toBe('0 %');
+    expect(formatPercent(null)).toBe('–');
+    expect(formatPercent(Number.NaN)).toBe('–');
+    expect(Object.keys(ROLE_LABEL)).toEqual(['viewer', 'operator', 'approver']);
   });
 
   it('validerar formulär med samma regler som API:t', () => {

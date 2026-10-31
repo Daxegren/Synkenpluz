@@ -13,10 +13,12 @@ import {
   ONBOARDING_PHASE,
   PAGES,
   PAYOUT_STATUS,
+  ROLE_LABEL,
   ageText,
   apiErrorMessage,
   describeCommand,
   formatAmount,
+  formatPercent,
   parseHash,
   validateGoLive,
   validateGuardResolve,
@@ -120,7 +122,7 @@ class ApiError extends Error {
 }
 
 /** `keepOn401`: vid inloggning ska ett 401 visas som fel i formuläret, inte rita om sidan. */
-async function api(method, path, body, { keepOn401 = false } = {}) {
+async function api(method, path, body, { keepOn401 = false, asBlob = false } = {}) {
   let response;
   try {
     response = await fetch(path, {
@@ -132,6 +134,8 @@ async function api(method, path, body, { keepOn401 = false } = {}) {
   } catch {
     throw new ApiError(0, null);
   }
+  // En fil (t.ex. CSV) hämtas som blob när svaret är ok. Felsvar är alltid JSON.
+  if (asBlob && response.ok) return response.blob();
   let json = null;
   try {
     json = await response.json();
@@ -316,11 +320,34 @@ function exceptionExplanation(code) {
   return h('div', {}, h('p', {}, h('strong', {}, 'Vad det betyder: '), info.meaning), h('p', {}, h('strong', {}, 'Vad du kan göra: '), info.action));
 }
 
+/** Hämtar underlaget som fil. Nyckeln skickas som header, så det går inte att göra med en vanlig länk. */
+function csvButton(payoutId) {
+  const error = h('span', { class: 'error', role: 'alert' });
+  const button = h('button', { class: 'btn ghost', type: 'button' }, 'Ladda ner underlag (CSV)');
+  button.addEventListener('click', async () => {
+    error.textContent = '';
+    button.disabled = true;
+    try {
+      const blob = await api('GET', `/v1/proposals/${encodeURIComponent(payoutId)}/export.csv`, undefined, { asBlob: true });
+      const url = URL.createObjectURL(blob);
+      const a = h('a', { href: url, download: `forslag-${payoutId.replace(/[^A-Za-z0-9._-]/g, '_')}.csv` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      error.textContent = e instanceof ApiError ? e.message : 'Något gick fel.';
+    }
+    button.disabled = false;
+  });
+  return h('span', {}, button, ' ', error);
+}
+
 async function proposalDetailView(payoutId) {
   const p = await api('GET', `/v1/proposals/${encodeURIComponent(payoutId)}`);
   const status = PAYOUT_STATUS[p.status];
   const blocks = [
-    h('p', {}, link('#/forslag', '← Alla förslag')),
+    h('p', {}, link('#/forslag', '← Alla förslag'), ' ', csvButton(payoutId)),
     h('div', { class: 'alert' }, h('strong', {}, 'Det här är bara ett förslag. '), 'Inget har bokförts. Så här skulle utbetalningen bokföras i live-läge, med nuvarande uppgifter.'),
     h('p', {}, badge(status?.tone ?? 'neutral', status?.label ?? p.status), ' ', h('span', { class: 'muted' }, status?.help ?? '')),
   ];
@@ -581,10 +608,37 @@ async function startView() {
   return [
     h('div', { class: 'row' }, badge(phase.tone, phase.label), h('span', { class: 'muted' }, phase.help)),
     h('div', { class: 'card' }, h('h3', {}, 'Checklista'), steps),
+    await summaryCard(),
     status.ledger ? ledgerCard(status.ledger) : null,
     status.phase === 'review' ? goLiveCard(status) : null,
     status.phase === 'live' ? h('div', { class: 'alert ok' }, 'Kunden bokför på riktigt. Nya utbetalningar bokförs i affärssystemet så fort de hittats.') : null,
   ];
+}
+
+/** Hur stor del av förslagen som kan bokföras automatiskt. Utelämnas om servern saknar förslag eller inget finns än. */
+async function summaryCard() {
+  let s;
+  try {
+    s = await api('GET', '/v1/proposals/summary');
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+  if (s.payouts.total === 0) return null;
+  return h(
+    'div',
+    { class: 'card' },
+    h('h3', {}, 'Träffsäkerhet i testläge'),
+    h('p', {}, h('strong', {}, formatPercent(s.lineMatchRate)), ` av raderna matchades säkert mot en faktura (${s.lines.matched} av ${s.lines.matched + s.lines.unmatched}).`),
+    h('p', {}, h('strong', {}, formatPercent(s.fullyAutomaticRate)), ` av utbetalningarna blir helt klara utan mänsklig hjälp (${s.payouts.complete} av ${s.payouts.total}).`),
+    s.exceptionsByCode.length > 0
+      ? table(
+          ['Avvikelse', { label: 'Antal', num: true }, 'Vad det betyder'],
+          s.exceptionsByCode.map((e) => h('tr', {}, h('td', {}, EXCEPTION_INFO[e.code]?.title ?? e.code), h('td', { class: 'num' }, String(e.count)), h('td', {}, EXCEPTION_INFO[e.code]?.meaning ?? 'Okänd avvikelsekod.'))),
+        )
+      : h('p', { class: 'muted' }, 'Inga avvikelser.'),
+    h('p', { class: 'muted' }, 'Siffrorna avser bara de utbetalningar som hittills hämtats i testläge. Inget har bokförts.'),
+  );
 }
 
 function ledgerCard(ledger) {
@@ -629,6 +683,15 @@ function ledgerCard(ledger) {
 
 function goLiveCard(status) {
   const { count, withExceptions } = status.proposals;
+  if (status.you && !status.you.canApprove) {
+    return h(
+      'div',
+      { class: 'card' },
+      h('h3', {}, 'Godkänn och gå live'),
+      h('div', { class: 'alert warn' }, `Din nyckel har rollen ${ROLE_LABEL[status.you.role] ?? status.you.role}. Det krävs rollen ${ROLE_LABEL.approver} för att godkänna. Be en kollega med den rollen granska och godkänna.`),
+      h('p', {}, `${count} förslag väntar. `, link('#/forslag', 'Granska förslagen')),
+    );
+  }
   const error = h('p', { class: 'error', role: 'alert' });
   const reviewed = h('input', { id: 'reviewed', type: 'checkbox' });
   const submit = h('button', { class: 'btn danger', type: 'submit' }, 'Godkänn och gå live');

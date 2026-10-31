@@ -250,7 +250,7 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
     const clock = clockRef;
     await app.tenants.create({ id: 'T3', name: 'Ny kund' }, clock.now());
     await setTenantAccounts(dbRef, 'T3', accounts);
-    const key = (await app.apiKeys.issue('T3', {}, clock.now(), pepper)).rawKey;
+    const key = (await app.apiKeys.issue('T3', { role: 'approver' }, clock.now(), pepper)).rawKey;
     for (const provider of ['mondido', 'fortnox']) {
       await dbRef.query(
         `insert into connection (id, tenant_id, provider, encrypted_credentials, key_id, created_at, updated_at) values ($1, 'T3', $2, 'x', 'k1', $3, $3)`,
@@ -272,6 +272,10 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
     await visible(page.getByText('Redo för granskning', { exact: true }));
     expect(await page.locator('main').innerText()).not.toMatch(/\bnull\b|\[object |\bundefined\b|\bNaN\b/);
     await shot(page, '8-kom-igang');
+
+    // Träffsäkerheten i testläge: ett förslag, en matchad rad.
+    await visible(page.getByRole('heading', { name: 'Träffsäkerhet i testläge' }));
+    await visible(page.getByText('av raderna matchades säkert mot en faktura (1 av 1)', { exact: false }));
 
     await page.getByRole('button', { name: 'Testa anslutningen' }).click();
     await visible(page.getByText('Anslutningen fungerar.'));
@@ -296,6 +300,48 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
     await shot(page, '9-live');
 
     expect(problems).toEqual([]);
+    await context.close();
+  }, 120_000);
+
+  it('onboarding: underlag som CSV och roller i gränssnittet', async () => {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, locale: 'sv-SE', acceptDownloads: true });
+    const page = await context.newPage();
+    const clock = clockRef;
+    await app.tenants.create({ id: 'T4', name: 'Roll-kund' }, clock.now());
+    await setTenantAccounts(dbRef, 'T4', accounts);
+    const viewerKey = (await app.apiKeys.issue('T4', { role: 'viewer' }, clock.now(), pepper)).rawKey;
+    for (const provider of ['mondido', 'fortnox']) {
+      await dbRef.query(
+        `insert into connection (id, tenant_id, provider, encrypted_credentials, key_id, created_at, updated_at) values ($1, 'T4', $2, 'x', 'k1', $3, $3)`,
+        [`conn4-${provider}`, provider, clock.now()],
+      );
+    }
+    await processPayout(
+      { uow: createUnitOfWork(dbRef), clock },
+      { tenantId: 'T4', payout: makePayout('UTB-CSV', [payment('L1', 'REF-A', 12500), payment('L2', 'REF-SAKNAS', 500)]), invoices: [makeInvoice('A')], accounts },
+      { mode: 'dry_run' },
+    );
+
+    await page.goto(`${base}/app`);
+    await page.getByLabel('API-nyckel').fill(viewerKey);
+    await page.getByRole('button', { name: 'Logga in' }).click();
+    await visible(page.getByRole('navigation', { name: 'Huvudmeny' }));
+
+    // En läsare ser varför hen inte kan godkänna, och ingen knapp.
+    await page.getByRole('link', { name: 'Kom igång' }).click();
+    await visible(page.getByText('Din nyckel har rollen Läsare', { exact: false }));
+    expect(await page.getByRole('button', { name: 'Godkänn och gå live' }).count()).toBe(0);
+
+    // Underlaget laddas ner som fil med rätt innehåll.
+    await page.goto(`${base}/app#/forslag/UTB-CSV`);
+    await visible(page.getByRole('button', { name: 'Ladda ner underlag (CSV)' }));
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Ladda ner underlag (CSV)' }).click()]);
+    expect(download.suggestedFilename()).toBe('forslag-UTB-CSV.csv');
+    const path = await download.path();
+    const { readFileSync } = await import('node:fs');
+    const csv = readFileSync(path, 'utf8');
+    expect(csv).toContain('Betalning;L1;A;2026-10-28;SEK;125,00');
+    expect(csv).toContain('Avvikelse;L2');
     await context.close();
   }, 120_000);
 

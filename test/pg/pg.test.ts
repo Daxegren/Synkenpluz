@@ -80,9 +80,15 @@ describe.skipIf(skip)('Postgres: samtidighet och adapter', () => {
       for (let i = 0; i < 40; i++) {
         for (const c of await repos.commands.claimDue(now, 5)) {
           started.push(c.key);
-          // Föregångaren ska redan vara klar när efterföljaren startar.
-          if (c.key === 'a2') expect(done).toContain('a1');
-          if (c.key === 'a3') expect(done).toContain('a2');
+          // Föregångaren ska redan vara klar när efterföljaren startar. Det kontrolleras mot databasen, inte mot
+          // `done`: en annan arbetare kan hinna hämta efterföljaren mellan att databasen markerat föregångaren
+          // klar och att den arbetarens egen kod hunnit skriva i `done`. Status "klar" ändras aldrig tillbaka,
+          // så en kontroll i efterhand är säker.
+          const predecessor = c.key === 'a2' ? 'a1' : c.key === 'a3' ? 'a2' : null;
+          if (predecessor) {
+            const stored = await repos.commands.listByPayout('T1', 'P1');
+            expect(stored.find((s) => s.key === predecessor)?.status).toBe('succeeded');
+          }
           await repos.commands.markSucceeded(c.id, 'x', now);
           done.push(c.key);
         }

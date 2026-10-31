@@ -15,6 +15,23 @@ const SECRET_LEN = 43; // 32 byte base64url utan padding
 const KEY_RE = new RegExp(`^synk_([0-9a-f]{${ID_HEX_LEN}})_([A-Za-z0-9_-]{${SECRET_LEN}})$`);
 const MIN_PEPPER_BYTES = 32;
 
+/**
+ * Roller, i stigande ordning. viewer läser. operator hanterar även avvikelser, köar om kommandon och avgör osäkra
+ * anrop. approver godkänner även att kunden går live. Nya nycklar får operator om inget annat anges.
+ */
+export const API_KEY_ROLES = ['viewer', 'operator', 'approver'] as const;
+export type ApiKeyRole = (typeof API_KEY_ROLES)[number];
+export const DEFAULT_API_KEY_ROLE: ApiKeyRole = 'operator';
+
+export function isApiKeyRole(value: unknown): value is ApiKeyRole {
+  return typeof value === 'string' && (API_KEY_ROLES as readonly string[]).includes(value);
+}
+
+/** Har `role` minst rollen `minimum`? */
+export function hasRole(role: ApiKeyRole, minimum: ApiKeyRole): boolean {
+  return API_KEY_ROLES.indexOf(role) >= API_KEY_ROLES.indexOf(minimum);
+}
+
 export interface GeneratedApiKey {
   /** Offentligt id, säkert att logga. */
   id: string;
@@ -62,6 +79,7 @@ export interface ApiKeyRecord {
   revokedAt: Date | null;
   expiresAt: Date | null;
   tenantStatus: 'active' | 'suspended';
+  role: ApiKeyRole;
 }
 
 export interface ApiKeyStore {
@@ -76,6 +94,7 @@ export interface AuthenticatedKey {
   tenantId: string;
   /** Nyckelns offentliga id (aldrig hemligheten). Säkert att logga och skriva i revisionsposter. */
   keyId: string;
+  role: ApiKeyRole;
 }
 
 export interface AuthenticatorDeps {
@@ -98,7 +117,7 @@ export function createDetailedAuthenticator(deps: AuthenticatorDeps): (rawKey: s
     if (record.expiresAt !== null && record.expiresAt.getTime() <= now.getTime()) return null;
     if (record.tenantStatus !== 'active') return null;
     await deps.store.touchLastUsed(record.id, now);
-    return { tenantId: record.tenantId, keyId: record.id };
+    return { tenantId: record.tenantId, keyId: record.id, role: record.role };
   };
 }
 

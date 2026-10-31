@@ -24,6 +24,7 @@ import { migrate } from '../src/db/migrations.js';
 import { createAuditLog } from '../src/db/repositories.js';
 import { setTenantAccounts } from '../src/db/syncState.js';
 import { createApiKeyRepository, createTenantRepository } from '../src/db/tenants.js';
+import { API_KEY_ROLES, DEFAULT_API_KEY_ROLE, isApiKeyRole, type ApiKeyRole } from '../src/security/apiKeys.js';
 import { StaticKeyProvider } from '../src/security/crypto.js';
 
 const credentialsSchema = z.record(z.string(), z.string());
@@ -33,7 +34,7 @@ const USAGE = `Kommandon:
   set-accounts <tenant> <bank> <clearing> <feeExpense> <feeVat>
   set-mode <tenant> <dry_run|live>
   suspend <tenant> | activate <tenant>
-  issue-key <tenant> [dagar]
+  issue-key <tenant> [dagar] [viewer|operator|approver]   (roll: operator om inget anges)
   revoke-key <tenant> <nyckel-id>
   set-connection <tenant> <provider>     (JSON med uppgifter på stdin)
   list-tenants
@@ -110,12 +111,18 @@ async function main() {
       }
       case 'issue-key': {
         const tenantId = need(args[0], 'tenant');
-        const days = args[1] === undefined ? null : Number(args[1]);
-        if (days !== null && (!Number.isInteger(days) || days <= 0)) throw new Error('Antal dagar måste vara ett positivt heltal');
+        // Resten är valfria och i valfri ordning: antal dagar (heltal) och roll (viewer, operator eller approver).
+        let days: number | null = null;
+        let role: ApiKeyRole = DEFAULT_API_KEY_ROLE;
+        for (const arg of args.slice(1)) {
+          if (isApiKeyRole(arg)) role = arg;
+          else if (/^\d+$/.test(arg) && Number(arg) > 0) days = Number(arg);
+          else throw new Error(`Okänt argument "${arg}". Ange antal dagar (positivt heltal) eller en roll: ${API_KEY_ROLES.join(', ')}`);
+        }
         const expiresAt = days ? new Date(now.getTime() + days * 86_400_000) : null;
-        const key = await createApiKeyRepository(db).issue(tenantId, { expiresAt }, now, env.apiKeyPepper);
-        await log(tenantId, 'api_key.issued', { keyId: key.id });
-        console.log(`Nyckel-id: ${key.id}\nNyckel (visas bara nu, spara den säkert):\n${key.rawKey}`);
+        const key = await createApiKeyRepository(db).issue(tenantId, { expiresAt, role }, now, env.apiKeyPepper);
+        await log(tenantId, 'api_key.issued', { keyId: key.id, role });
+        console.log(`Nyckel-id: ${key.id} (roll: ${role})\nNyckel (visas bara nu, spara den säkert):\n${key.rawKey}`);
         break;
       }
       case 'revoke-key': {

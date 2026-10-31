@@ -120,6 +120,7 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | [docs/INDEX.md](docs/INDEX.md) | Index, läsordning och dokumentationsregeln |
 | [docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md) | Funktionskarta med diagram |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Driftsättning: Docker, kontrolllista inför skarp drift, go-live |
+| [docs/KONKURRENTANALYS.md](docs/KONKURRENTANALYS.md) | Synka+ och marknaden, med källor och vad som är verifierat |
 | [docs/BRIOX_DATAKONTRAKT.md](docs/BRIOX_DATAKONTRAKT.md) | Frågor som avgör en Briox-adapter (inget verifierat än) |
 | [docs/MONDIDO_DATAKONTRAKT.md](docs/MONDIDO_DATAKONTRAKT.md) | Underlag till Mondidos utvecklare: vilka data vi behöver |
 | [docs/FORTNOX_TESTPLAN.md](docs/FORTNOX_TESTPLAN.md) | Testplan för första dagen i Fortnox-sandboxen |
@@ -145,7 +146,7 @@ Tjänsten levererar en enkel webbsida på **`/app`** (t.ex. `http://localhost:30
 - följa **onboarding** av en ny kund (checklista, test av anslutningen) och **godkänna go-live**,
 - avgöra **osäkra anrop** (utfallet av ett bokföringsanrop är okänt) med tydliga varningar.
 
-Allt är på svenska, fungerar på mobil och med tangentbord, och har ljust och mörkt läge. Gränssnittet gör inget API:t inte redan tillåter. Se [docs/API.md](docs/API.md) och [docs/SECURITY.md](docs/SECURITY.md) för hur det skyddas. Skapa en nyckel per person med `npm run admin -- issue-key <kund> 30` (giltig 30 dagar).
+Allt är på svenska, fungerar på mobil och med tangentbord, och har ljust och mörkt läge. Gränssnittet gör inget API:t inte redan tillåter. Se [docs/API.md](docs/API.md) och [docs/SECURITY.md](docs/SECURITY.md) för hur det skyddas. Skapa en nyckel per person med `npm run admin -- issue-key <kund> 30 operator` (giltig 30 dagar, roll `viewer`, `operator` eller `approver`). Bara `approver` kan godkänna go-live.
 
 ## Utveckling
 

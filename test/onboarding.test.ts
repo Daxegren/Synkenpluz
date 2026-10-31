@@ -252,7 +252,8 @@ describe('onboarding via API', () => {
       ...s.repos,
       uow: s.uow,
       onboarding: s.service,
-      authenticateDetailed: async (k) => (k === 'key-1' ? { tenantId: 'T1', keyId: 'k1' } : k === 'key-2' ? { tenantId: 'T2', keyId: 'k2' } : null),
+      authenticateDetailed: async (k) =>
+        k === 'key-1' ? { tenantId: 'T1', keyId: 'k1', role: 'approver' as const } : k === 'key-2' ? { tenantId: 'T2', keyId: 'k2', role: 'approver' as const } : null,
       authenticate: async (k) => (k === 'key-1' ? 'T1' : k === 'key-2' ? 'T2' : null),
       clock: s.clock,
       rateLimit: false,

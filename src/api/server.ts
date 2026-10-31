@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { OnboardingService } from '../db/onboarding.js';
+import { hasRole, type ApiKeyRole } from '../security/apiKeys.js';
+import { proposalToCsv, summarizeProposals } from '../service/report.js';
 import { registerWebUi } from '../web/serve.js';
 import type {
   AuditLog,
@@ -38,7 +40,7 @@ export interface ApiDeps {
    * Som `authenticate` men returnerar även nyckelns offentliga id. Har företräde när den finns, och id:t
    * hamnar då i revisionsposterna som `api:<nyckel-id>` (annars bara `api`).
    */
-  authenticateDetailed?: (apiKey: string) => Promise<{ tenantId: string; keyId: string } | null>;
+  authenticateDetailed?: (apiKey: string) => Promise<{ tenantId: string; keyId: string; role?: ApiKeyRole } | null>;
   /** Sparade dry_run-förslag. Saknas den finns inte /v1/proposals-rutterna (404). */
   proposals?: ProposalRepository;
   /** Journal över gateway-anrop med okänt utfall. Saknas den finns inte /v1/guard-rutterna (404). */
@@ -72,6 +74,8 @@ declare module 'fastify' {
     tenantId: string;
     /** `api:<nyckel-id>` när nyckelns id är känt, annars `api`. */
     actor: string;
+    /** Nyckelns roll. Utan uppgift från `authenticate` räknas den som operator. */
+    role: ApiKeyRole;
   }
 }
 
@@ -97,6 +101,13 @@ class HttpError extends Error {
 
 function rateLimited(retryAfterSec: number): HttpError {
   return new HttpError(429, 'rate_limited', 'För många anrop, försök igen senare', { 'retry-after': String(retryAfterSec) });
+}
+
+/** Kräver minst rollen `minimum`. 403 med en förklaring som inte avslöjar något om andra kunder. */
+function requireRole(request: FastifyRequest, minimum: ApiKeyRole): void {
+  if (!hasRole(request.role, minimum)) {
+    throw new HttpError(403, 'forbidden', `Åtgärden kräver rollen ${minimum}. Din nyckel har rollen ${request.role}`);
+  }
 }
 
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
@@ -250,6 +261,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
 
   app.decorateRequest('tenantId', '');
   app.decorateRequest('actor', 'api');
+  app.decorateRequest('role', 'operator');
 
   // Rate limiting. Alla hinkar delar injicerad klocka; minnet begränsas av RateLimiter.
   const rl = deps.rateLimit === false ? null : resolveRateLimitConfig(deps.rateLimit);
@@ -351,10 +363,12 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
 
       let tenantId: string | null;
       let keyId: string | undefined;
+      let role: ApiKeyRole = 'operator';
       if (deps.authenticateDetailed) {
         const r = await deps.authenticateDetailed(header);
         tenantId = r?.tenantId ?? null;
         keyId = r?.keyId;
+        if (r?.role !== undefined) role = r.role;
       } else {
         tenantId = await deps.authenticate(header);
       }
@@ -365,6 +379,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
         if (!d.allowed) throw rateLimited(d.retryAfterSec);
       }
       request.tenantId = tenantId;
+      request.role = role;
       // Bara det offentliga id:t, aldrig nyckelns hemlighet.
       request.actor = keyId ? `api:${keyId}` : 'api';
     });
@@ -391,6 +406,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
     });
 
     v1.post('/exceptions/:id/resolve', async (request) => {
+      requireRole(request, 'operator');
       const { id } = parse(idParams, request.params, 'path');
       const body = parse(resolveBody, request.body, 'body');
       const tenantId = request.tenantId;
@@ -416,6 +432,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
     });
 
     v1.post('/commands/:id/retry', async (request) => {
+      requireRole(request, 'operator');
       const { id } = parse(idParams, request.params, 'path');
       const tenantId = request.tenantId;
       const now = deps.clock.now();
@@ -453,6 +470,22 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
         return paginateInMemory(all, q, presentProposalSummary);
       });
 
+      // Sammanställning av träffsäkerhet över alla sparade förslag. Bara antal, inga belopp eller referenser.
+      v1.get('/proposals/summary', async (request) => summarizeProposals(await proposals.list(request.tenantId)));
+
+      // Underlag för redovisningskonsulten: CSV med semikolon och decimalkomma.
+      v1.get('/proposals/:payoutId/export.csv', async (request, reply) => {
+        const { payoutId } = parse(payoutIdParams, request.params, 'path');
+        const p = await proposals.get(request.tenantId, payoutId);
+        if (!p) throw new HttpError(404, 'not_found', 'Förslaget finns inte');
+        const filename = `forslag-${payoutId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80)}.csv`;
+        return reply
+          .header('content-type', 'text/csv; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .header('cache-control', 'no-store')
+          .send(proposalToCsv(p));
+      });
+
       v1.get('/proposals/:payoutId', async (request) => {
         const { payoutId } = parse(payoutIdParams, request.params, 'path');
         const p = await proposals.get(request.tenantId, payoutId);
@@ -466,10 +499,12 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       v1.get('/onboarding', async (request) => {
         const status = await onboarding.status(request.tenantId);
         if (!status) throw new HttpError(404, 'not_found', 'Kunden finns inte');
-        return status;
+        // `you` låter gränssnittet förklara varför en knapp inte går att använda. Servern kontrollerar ändå rollen.
+        return { ...status, you: { role: request.role, canApprove: hasRole(request.role, 'approver') } };
       });
 
       v1.post('/onboarding/go-live', async (request) => {
+        requireRole(request, 'approver');
         const body = parse(goLiveBody, request.body, 'body');
         const outcome = await onboarding.goLive(request.tenantId, body, request.actor);
         switch (outcome.result) {
@@ -487,6 +522,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       });
 
       v1.post('/onboarding/check-connection', async (request) => {
+        requireRole(request, 'operator');
         const check = await onboarding.checkConnection(request.tenantId);
         if (!check) throw new HttpError(404, 'not_found', 'Ingen leverantör av affärssystem är kopplad till tjänsten');
         return check;
@@ -503,6 +539,7 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       });
 
       v1.post('/guard/resolve', async (request) => {
+        requireRole(request, 'operator');
         const body = parse(guardResolveBody, request.body, 'body');
         const tenantId = request.tenantId;
         const now = deps.clock.now();

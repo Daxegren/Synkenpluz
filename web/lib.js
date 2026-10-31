@@ -218,6 +218,15 @@ export function apiErrorMessage(status, body, retryAfterSec) {
   }
 }
 
+/** Rollerna i klartext. Servern avgör alltid vad en roll får göra, det här är bara etiketter. */
+export const ROLE_LABEL = { viewer: 'Läsare', operator: 'Handläggare', approver: 'Godkännare' };
+
+/** 0.83 blir "83 %". Null (inget att räkna på) blir ett tankstreck. */
+export function formatPercent(rate) {
+  if (rate === null || rate === undefined || Number.isNaN(rate)) return '–';
+  return `${Math.round(rate * 100)} %`;
+}
+
 /** Fas i onboardingen: vad den betyder för användaren. */
 export const ONBOARDING_PHASE = {
   setup: { label: 'Pågår', tone: 'warn', help: 'Något återstår innan förslagen kan godkännas.' },

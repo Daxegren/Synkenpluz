@@ -115,3 +115,16 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 | Briox | `docs/BRIOX_DATAKONTRAKT.md`: 14 frågor. **Inget verifierat**: Briox dokumentation gick inte att nå |
 
 **Verifierat:** 27 nya tester för onboarding (rena funktioner, databas, två godkännanden samtidigt, API, kontrakt) och ett webbläsartest av hela flödet: checklista, anslutningstest, vägrad utan bekräftad granskning, avbryta i dialogen, godkänna, kontrollera läge och revisionspost.
+
+## 2026-10-31: konkurrentanalys, roller och underlag
+
+| Del | Vad |
+| --- | --- |
+| Analys | `docs/KONKURRENTANALYS.md`. **Fyndet:** Mondido har redan en Fortnox-koppling (Mondido Basic, Automatisera Mera). `synkaplus.se` och `fortnox.se` gick inte att läsa direkt (domänerna är inte tillåtna), så underlaget kommer från sökresultat och är märkt med vad som är verifierat |
+| Roller | `viewer` < `operator` < `approver` per nyckel, migration 007, kontroll i servern. Se ADR-015 |
+| Träffsäkerhet | `GET /v1/proposals/summary` och ett kort på sidan *Kom igång* |
+| Underlag | `GET /v1/proposals/:payoutId/export.csv` med skydd mot formelinjektion, och en nedladdningsknapp på varje förslag |
+
+**Vad testerna hittade:** säkerhetstestet för webbkoden förbjuder en andra `fetch`, så nedladdningen gick om till den gemensamma `api()` (med `asBlob`). Det håller kvar regeln att nyckeln bara skickas från ett ställe.
+
+**Ett intermittent testfel utreddes, inte avfärdades:** `claimDue under samtidig markSucceeded ...` föll en gång av elva körningar. Köns SQL var rätt (en efterföljare hämtas bara när alla tidigare kommandon i utbetalningen är `succeeded` i databasen). Felet låg i testets egen bokföring: en annan arbetare kunde hämta efterföljaren efter att databasen markerat föregångaren klar men innan den första arbetaren hunnit skriva i sin lokala lista `done`. Testet kontrollerar nu föregångarens status i databasen, vilket är monotont (klar blir aldrig oklar) och därför fritt från kapplöpning. Sex körningar i rad gick igenom efteråt.

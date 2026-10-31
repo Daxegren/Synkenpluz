@@ -158,3 +158,13 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 **Alternativ:** ett lagrat onboardingtillstånd (kan driva isär från verkligheten, till exempel om en nyckel återkallas efteråt), eller att låta `set-mode` vara enda vägen (inget spår, ingen kontroll). Vi behöll `set-mode` för drift och nödfall.
 
 **Konsekvens:** godkännandet är bara så starkt som nyckeln: det finns inga roller, så vem som helst med kundens nyckel kan godkänna. Roller och en särskild godkännandebehörighet är kvar att bygga. Antalet förslag är ett grovt men billigt skydd mot att godkänna något som ändrats; det visar inte *vilka* förslag som ändrats.
+
+## ADR-015: Roller per nyckel, med operator som standard
+
+**Bakgrund:** godkännandet av go-live (ADR-014) var bara så starkt som nyckeln: vem som helst med kundens nyckel kunde godkänna. Det är den mest riskfyllda åtgärden och bör inte ges till alla som ska granska.
+
+**Beslut:** tre roller på nyckeln: `viewer` < `operator` < `approver`. Nya nycklar får `operator`, så att ingen får rätten att godkänna av misstag. Migration 007 gör befintliga nycklar till `operator`. Rollen kontrolleras i servern före validering av body. En okänd roll i databasen ger `viewer` (hellre för lite än för mycket). Ett `ApiDeps.authenticate` som inte anger roll ger `operator`, aldrig mer. Gränssnittet visar bara varför en knapp saknas; servern avgör alltid.
+
+**Alternativ:** en separat adminnyckel utanför kunden (kräver en helt ny identitet), eller riktiga användarkonton och SSO (rätt på sikt men betydligt större). Roller per nyckel är det minsta som stänger hålet.
+
+**Konsekvens:** rollen hör till en nyckel, inte till en person, och det finns ingen tvåpersonsregel. En kund som delar en nyckel mellan flera personer får ingen nytta av rollerna.

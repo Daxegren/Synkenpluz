@@ -223,12 +223,12 @@ describe('createDetailedAuthenticator', () => {
     const gen = generateApiKey(pepper);
     const touched: string[] = [];
     const store = {
-      findById: async (id: string) => (id === gen.id ? { id, tenantId: 'T1', hash: gen.hash, revokedAt: null, expiresAt: null, tenantStatus: 'active' as const } : null),
+      findById: async (id: string) => (id === gen.id ? { id, tenantId: 'T1', hash: gen.hash, revokedAt: null, expiresAt: null, tenantStatus: 'active' as const, role: 'operator' as const } : null),
       touchLastUsed: async (id: string) => void touched.push(id),
     };
     const clock = { now: () => new Date('2026-10-28T12:00:00Z') };
     const auth = createDetailedAuthenticator({ store, pepper, clock });
-    expect(await auth(gen.rawKey)).toEqual({ tenantId: 'T1', keyId: gen.id });
+    expect(await auth(gen.rawKey)).toEqual({ tenantId: 'T1', keyId: gen.id, role: 'operator' });
     expect(JSON.stringify(await auth(gen.rawKey))).not.toContain(gen.rawKey);
     expect(touched).toEqual([gen.id, gen.id]);
     expect(await auth('synk_000000000000_' + 'a'.repeat(43))).toBeNull();
