@@ -119,7 +119,14 @@ describe.skipIf(!PG_URL)('Postgres: gallring, mätvärden, förslag och skyddsga
     const guarded = new GuardedLedgerGateway(naive, createGatewayGuardStore(db), { clock });
 
     const both = await Promise.allSettled([guarded.execute('T1', pay('s1')), guarded.execute('T1', pay('s1'))]);
-    expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    // Det som ska gälla är att bokföringen sker exakt en gång. Om det andra anropet hann starta först efter att
+    // det första blivit klart returnerar det det sparade resultatet (lyckas), annars avvisas det som pågående.
+    // Vilket av de två som händer beror på hur snabbt anslutningarna är, så båda godtas.
+    const fulfilled = both.flatMap((r) => (r.status === 'fulfilled' ? [r.value.externalId] : []));
+    const rejected = both.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []));
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(fulfilled).size).toBe(1);
+    for (const reason of rejected) expect(reason).toMatchObject({ retryable: true });
     expect(applied).toEqual(['s1']);
 
     lose = true;

@@ -140,7 +140,9 @@ describe('databas: tenants, API-nycklar, connections', () => {
     const { keys } = await setup();
     const k = await keys.issue('a', {}, clock.now(), pepper);
     const rows = await env.db.query<{ hash: string }>('select hash from api_key');
-    const secretPart = k.rawKey.slice(k.rawKey.lastIndexOf('_') + 1);
+    // Hemligheten är base64url och kan själv innehålla '_': ta allt efter prefixet och id:t, inte efter sista understrecket.
+    const secretPart = k.rawKey.split('_').slice(2).join('_');
+    expect(secretPart).toHaveLength(43);
     expect(JSON.stringify(rows)).not.toContain(secretPart);
     expect(rows[0]?.hash).toMatch(/^[0-9a-f]{64}$/);
     const listed = JSON.stringify(await keys.list('a'));
