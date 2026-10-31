@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Invoice, LedgerCommand, Payout } from '../../src/domain/types.js';
 import { LedgerError, type LedgerGateway } from '../../src/ports/index.js';
+import type { LedgerProvider } from '../../src/ports/ledger.js';
 import type { InvoiceReader, PayoutSource } from '../../src/ports/sources.js';
+import { LEDGER_PROVIDERS } from '../../src/service/onboarding.js';
 
 /**
  * Kontraktssviter som VARJE adapter mot omvärlden ska klara. Kör dem mot nya adaptrar (Mondido,
@@ -251,6 +253,53 @@ export function ledgerGatewayContract(name: string, factory: () => Promise<Ledge
       const error = await h.gateway.execute('T1', bad).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(LedgerError);
       expect(h.appliedCount('T1', bad.key)).toBe(0);
+    });
+  });
+}
+
+// ----------------------------------------------------------------------------- LedgerProvider
+
+export interface LedgerProviderHarness {
+  provider: LedgerProvider;
+  /** Får kundens anslutning att inte fungera (t.ex. ogiltig token). */
+  breakConnection(tenantId: string): Promise<void>;
+  /** En hemlighet som ingår i kundens uppgifter och aldrig får synas i svaren. */
+  secret: string;
+}
+
+/**
+ * Kontrakt för beskrivningen av ett affärssystem. Onboardingen förlitar sig på att namnet är ett som den känner
+ * igen, att förmågorna är ärliga, och att anslutningstestet varken skriver något eller läcker uppgifter.
+ */
+export function ledgerProviderContract(name: string, factory: () => Promise<LedgerProviderHarness>): void {
+  describe(`LedgerProvider-kontrakt: ${name}`, () => {
+    it('har ett namn som onboardingen känner igen och förmågor som är sanna eller falska', async () => {
+      const { provider } = await factory();
+      expect(LEDGER_PROVIDERS).toContain(provider.provider);
+      for (const [capability, value] of Object.entries(provider.capabilities)) {
+        expect(typeof value, capability).toBe('boolean');
+      }
+      expect(Object.keys(provider.capabilities).sort()).toEqual(['creditInvoice', 'idempotentWrites', 'postVoucher', 'searchByReference', 'verifyByReference']);
+    });
+
+    it('svarar ok utan problem när anslutningen fungerar', async () => {
+      const { provider } = await factory();
+      expect(await provider.checkConnection('T1')).toEqual({ ok: true, problems: [] });
+    });
+
+    it('förklarar vad som är fel när anslutningen inte fungerar, utan att läcka uppgifter', async () => {
+      const { provider, breakConnection, secret } = await factory();
+      await breakConnection('T1');
+      const check = await provider.checkConnection('T1');
+      expect(check.ok).toBe(false);
+      expect(check.problems.length).toBeGreaterThan(0);
+      expect(JSON.stringify(check)).not.toContain(secret);
+    });
+
+    it('påverkar inte andra kunder', async () => {
+      const { provider, breakConnection } = await factory();
+      await breakConnection('T1');
+      expect((await provider.checkConnection('T2')).ok).toBe(true);
     });
   });
 }

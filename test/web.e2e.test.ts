@@ -6,9 +6,10 @@ import { createApp } from '../src/app/compose.js';
 import { createUnitOfWork } from '../src/db/repositories.js';
 import { setTenantAccounts } from '../src/db/syncState.js';
 import { FakeLedgerGateway } from '../src/gateways/fake.js';
+import { FakeLedgerProvider } from '../src/gateways/fakeProvider.js';
 import { FakePayoutSource } from '../src/gateways/fakeSource.js';
 import { processPayout } from '../src/service/processPayout.js';
-import { accounts, createTestStack, makeInvoice, makePayout, payment } from './helpers.js';
+import { TestClock, accounts, createTestStack, makeInvoice, makePayout, payment } from './helpers.js';
 
 /**
  * Webbgränssnittet i en riktig webbläsare mot en riktig server med riktiga data. Körs bara om Playwright
@@ -46,6 +47,8 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
   let base = '';
   let rawKey = '';
   let app: ReturnType<typeof createApp>;
+  let dbRef: Awaited<ReturnType<typeof createTestStack>>['db'];
+  let clockRef: TestClock;
   const shot = async (page: Any, name: string) => {
     if (shots) await page.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
   };
@@ -53,13 +56,15 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
   beforeAll(async () => {
     if (shots) mkdirSync(shots, { recursive: true });
     const { db, clock } = await createTestStack();
+    dbRef = db;
+    clockRef = clock;
     const ledger = new FakeLedgerGateway({ invoices: [makeInvoice('A'), makeInvoice('B')] });
     app = createApp({
       db,
       clock,
       apiKeyPepper: pepper,
       rateLimit: false,
-      adapters: { source: new FakePayoutSource(), invoices: ledger, gateway: ledger },
+      adapters: { source: new FakePayoutSource(), invoices: ledger, gateway: ledger, provider: new FakeLedgerProvider('fortnox') },
     });
     await app.tenants.create({ id: 'T1', name: 'Testkund' }, clock.now());
     await setTenantAccounts(db, 'T1', accounts);
@@ -228,6 +233,69 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
     // Inga skriptfel och inga CSP-överträdelser. Webbläsaren loggar det avsiktliga 401-svaret från inloggningen
     // med fel nyckel; allt annat är ett fel.
     expect(problems.filter((p) => !/Failed to load resource.*status of 401/.test(p))).toEqual([]);
+    await context.close();
+  }, 120_000);
+
+  it('onboarding: checklista, anslutningstest och godkännande av go-live', async () => {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, locale: 'sv-SE' });
+    const page = await context.newPage();
+    const problems: string[] = [];
+    page.on('pageerror', (e: Any) => problems.push(`pageerror: ${e.message}`));
+    page.on('dialog', async (d: Any) => {
+      problems.push(`oväntad alert/prompt: ${d.message()}`);
+      await d.dismiss();
+    });
+
+    // En ny kund i testläge, med allt förberett utom godkännandet.
+    const clock = clockRef;
+    await app.tenants.create({ id: 'T3', name: 'Ny kund' }, clock.now());
+    await setTenantAccounts(dbRef, 'T3', accounts);
+    const key = (await app.apiKeys.issue('T3', {}, clock.now(), pepper)).rawKey;
+    for (const provider of ['mondido', 'fortnox']) {
+      await dbRef.query(
+        `insert into connection (id, tenant_id, provider, encrypted_credentials, key_id, created_at, updated_at) values ($1, 'T3', $2, 'x', 'k1', $3, $3)`,
+        [`conn-${provider}`, provider, clock.now()],
+      );
+    }
+    await processPayout(
+      { uow: createUnitOfWork(dbRef), clock },
+      { tenantId: 'T3', payout: makePayout('UTB-NY', [payment('L1', 'REF-A', 12500)]), invoices: [makeInvoice('A')], accounts },
+      { mode: 'dry_run' },
+    );
+
+    await page.goto(`${base}/app`);
+    await page.getByLabel('API-nyckel').fill(key);
+    await page.getByRole('button', { name: 'Logga in' }).click();
+    await visible(page.getByRole('navigation', { name: 'Huvudmeny' }));
+    await page.getByRole('link', { name: 'Kom igång' }).click();
+    await visible(page.getByRole('heading', { name: 'Kom igång' }));
+    await visible(page.getByText('Redo för granskning', { exact: true }));
+    expect(await page.locator('main').innerText()).not.toMatch(/\bnull\b|\[object |\bundefined\b|\bNaN\b/);
+    await shot(page, '8-kom-igang');
+
+    await page.getByRole('button', { name: 'Testa anslutningen' }).click();
+    await visible(page.getByText('Anslutningen fungerar.'));
+
+    // Utan bekräftad granskning går det inte att godkänna.
+    await page.getByRole('button', { name: 'Godkänn och gå live' }).click();
+    await visible(page.getByRole('alert').filter({ hasText: 'Bekräfta att du har granskat' }));
+    expect((await app.tenants.get('T3'))?.mode).toBe('dry_run');
+
+    // Avbryter man i bekräftelsedialogen händer ingenting.
+    await page.getByLabel('Jag har granskat förslagen och de stämmer.').check();
+    await page.getByRole('button', { name: 'Godkänn och gå live' }).click();
+    await visible(page.getByRole('dialog'));
+    await page.getByRole('button', { name: 'Avbryt' }).click();
+    expect((await app.tenants.get('T3'))?.mode).toBe('dry_run');
+
+    await page.getByRole('button', { name: 'Godkänn och gå live' }).click();
+    await page.getByRole('button', { name: 'Ja, gå live' }).click();
+    await visible(page.locator('.alert.ok').filter({ hasText: 'Kunden bokför på riktigt' }));
+    expect((await app.tenants.get('T3'))?.mode).toBe('live');
+    expect((await app.repos.audit.list('T3'))[0]?.action).toBe('tenant.go_live');
+    await shot(page, '9-live');
+
+    expect(problems).toEqual([]);
     await context.close();
   }, 120_000);
 

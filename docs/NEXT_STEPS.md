@@ -17,6 +17,7 @@ Det systemet **inte** kan: prata med Mondido eller Fortnox. Allt mot omvärlden 
 | [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Rad 1 nedan: vilka data finns och i vilket format |
 | [FORTNOX_TESTPLAN.md](FORTNOX_TESTPLAN.md) | Den som har sandboxen | Rad 2 och riskerna nedan (dubbelräknad bank, idempotens) |
 | [BESLUT_REDOVISNING.md](BESLUT_REDOVISNING.md) | Redovisningskonsult | Rad 4 och 5 nedan samt gallringstider |
+| [BRIOX_DATAKONTRAKT.md](BRIOX_DATAKONTRAKT.md) | Den som har Briox dokumentation | 14 frågor som avgör en Briox-adapter. Inget verifierat än |
 | [DEPLOY.md](DEPLOY.md) | Den som driftsätter | Hur tjänsten körs och sätts i skarp drift |
 
 ## Det jag behöver från dig (blockerar adaptrarna)
@@ -43,11 +44,11 @@ Likaså: gatewayens **idempotens**. Den är nu skyddad av `GuardedLedgerGateway`
 3. **Mondido PayoutSource** (läsning). Fyller `Payout`-typen från riktig data och visar vilka avvikelser som uppstår i praktiken.
 4. **Kör i dry_run mot en riktig pilotkund.** Granska förslagen med deras redovisningskonsult innan något skrivs. Cursorn står kvar i dry_run, så byte till live bokför allt som granskats.
 5. **Fortnox LedgerGateway** (skrivning) med bevisad idempotens. Först därefter live.
-6. **Spiris** som andra adapter mot samma gränssnitt.
+6. **Spiris** och **Briox** som fler adaptrar mot samma gränssnitt (`LedgerProvider` + kontraktssviterna). Börja med frågorna i [BRIOX_DATAKONTRAKT.md](BRIOX_DATAKONTRAKT.md).
 
 ## Redan känt och medvetet uppskjutet
 
-- Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor, och ett explicit godkännandeflöde för go-live (att byta läge görs fortfarande med `set-mode` i adminverktyget).
+- Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor. Godkännande av go-live finns (sidan *Kom igång*, `POST /v1/onboarding/go-live`), men utan roller: vem som helst med kundens nyckel kan godkänna. `set-mode` finns kvar för drift.
 - Larm skickas via webhook (`ALERT_WEBHOOK_URL`) men inte via e-post eller pager.
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
 - Rate limiting i API:t ligger i processminne och delas inte mellan instanser. Paginering av förslag och osäkra anrop sker i minnet.

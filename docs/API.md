@@ -194,6 +194,20 @@ curl -s -X POST -H "x-api-key: $API_KEY" http://localhost:3000/v1/commands/$COMM
 
 Svar `200`: `{"id": "...", "status": "pending"}`. `409` om kommandot inte finns, tillhör en annan kund eller inte är dött (ett kommando som är `pending`, `failed`, `in_progress` eller `succeeded` kan inte köas om). Åtgärden revisionsloggas som `command.requeued`.
 
+### `GET /v1/onboarding`
+
+Kundens onboarding: vad som återstår innan förslagen kan godkännas. Finns bara om onboarding-tjänsten är kopplad (annars `404`).
+
+Svar `200`: `{ "tenantStatus", "mode", "phase": "setup" | "review" | "live", "steps": [ { "id", "label", "done", "hint" } ], "blockers": ["accounts", ...], "proposals": { "count", "withExceptions" }, "ledger": { "provider", "capabilities", "notes" } }`. `ledger` finns bara om en leverantör av affärssystem är kopplad. Stegen är `tenant_active`, `accounts`, `api_key`, `payout_connection`, `ledger_connection`, `dry_run` och `in_doubt`. `blockers` är tom i faserna `review` och `live`.
+
+### `POST /v1/onboarding/go-live`
+
+Godkänner att kunden går från dry_run till live. Body: `{ "approvedProposalCount": 12 }`, antalet förslag godkännaren har sett. Allt som granskats bokförs då på riktigt, eftersom cursorn inte flyttas i dry_run. Svar `200` `{ "mode": "live" }`. Svar `409` med kod `not_ready` (checklistan är inte klar), `stale_review` (antalet förslag är ett annat nu, granska igen) eller `already_live`. Lägesbytet och revisionsposten `tenant.go_live` skrivs atomiskt. Det finns ingen väg tillbaka härifrån, och inga roller: vem som helst med kundens nyckel kan godkänna.
+
+### `POST /v1/onboarding/check-connection`
+
+Gör ett skrivskyddat test av anslutningen till affärssystemet. Svar `200` `{ "ok": true, "problems": [] }` eller `{ "ok": false, "problems": ["..."] }` (högst 10 problem om 200 tecken). Kastar testet visas bara ett allmänt meddelande, aldrig orsaken. `404` om ingen leverantör är kopplad.
+
 ### `GET /v1/guard/in-doubt`
 
 Kundens gateway-anrop vars utfall är **okänt**: anropet skickades men vi vet inte om affärssystemet tog emot det (timeout, avbruten anslutning, 5xx). Systemet skickar dem aldrig om automatiskt, eftersom det kunde ge dubbelbokning. En människa ska kontrollera i affärssystemet och avgöra med `POST /v1/guard/resolve`. Paginerad. Finns bara om `guard` är kopplad (annars `404`).

@@ -104,3 +104,14 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 **Vad webbläsartestet hittade som ingen annan test hade fångat:** ett 401 vid inloggning ritade om formuläret så att felmeddelandet hamnade på ett borttaget element (användaren såg inget fel); webbläsarens egen validering (`required`) blockerade våra tillgängliga felmeddelanden (löst med `novalidate`); nästlade listor och `null` skrevs ut som text (`[object HTMLDivElement]null`, `null` längst ned i listor); och `parseHash` behöll ett id för en okänd sida. Skärmbilder granskades för både skrivbord och mobil.
 
 **Verifierat:** 23 tester för gränssnittet gröna, inklusive ett XSS-försök via en skadlig referens som visas som text och inte körs, att inga skriptfel eller CSP-överträdelser sker, att nyckeln aldrig hamnar i `localStorage` eller cookies, att en annan kunds nyckel inte ser något, mobilbredd utan horisontell scroll och tangentbordsnavigering. Webbläsartestet körs lokalt (kräver Playwright) och hoppas över i CI.
+
+## 2026-10-31: onboarding och gränssnitt för affärssystem
+
+| Del | Vad |
+| --- | --- |
+| Checklista | `evaluateOnboarding` (`src/service/onboarding.ts`) och `createOnboardingService` (`src/db/onboarding.ts`), `GET /v1/onboarding` och sidan *Kom igång* i webbgränssnittet |
+| Go-live | `POST /v1/onboarding/go-live` med `approvedProposalCount`, atomiskt lägesbyte och revisionspost `tenant.go_live`. Se ADR-014 |
+| Affärssystem | `LedgerProvider` och `LedgerCapabilities` (`src/ports/ledger.ts`), skrivskyddat anslutningstest, `ledgerProviderContract` och `FakeLedgerProvider` |
+| Briox | `docs/BRIOX_DATAKONTRAKT.md`: 14 frågor. **Inget verifierat**: Briox dokumentation gick inte att nå |
+
+**Verifierat:** 27 nya tester för onboarding (rena funktioner, databas, två godkännanden samtidigt, API, kontrakt) och ett webbläsartest av hela flödet: checklista, anslutningstest, vägrad utan bekräftad granskning, avbryta i dialogen, godkänna, kontrollera läge och revisionspost.

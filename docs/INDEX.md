@@ -24,6 +24,7 @@ De här tre är skrivna för att lämnas till någon annan och besvaras. De är 
 
 | Dokument | Till | Innehåll |
 | --- | --- | --- |
+| [BRIOX_DATAKONTRAKT.md](BRIOX_DATAKONTRAKT.md) | Den som har Briox dokumentation | 14 oförifierade frågor som avgör en Briox-adapter. Ingenting är bekräftat än |
 | [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Exakt vilka data vi behöver från Mondidos utbetalningar, formatkrav, 15 frågor och testdata som önskas |
 | [FORTNOX_TESTPLAN.md](FORTNOX_TESTPLAN.md) | Den som har Fortnox-sandboxen | Första dagens provkörning: avgör dubbelräknad bank, idempotens/`verify`, felklassning, rate limits |
 | [BESLUT_REDOVISNING.md](BESLUT_REDOVISNING.md) | Redovisningskonsult | Tio beslut med färdiga exempelverifikat från motorn att godkänna eller ändra |

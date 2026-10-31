@@ -1,7 +1,9 @@
 import { buildServer } from '../api/server.js';
 import type { Db } from '../db/db.js';
 import { collectMetrics, renderPrometheus } from '../db/metrics.js';
+import { createOnboardingService } from '../db/onboarding.js';
 import { createRepositories, createUnitOfWork } from '../db/repositories.js';
+import type { LedgerProvider } from '../ports/ledger.js';
 import { createSyncStateStore, createTenantConfigProvider, listSyncableTenants } from '../db/syncState.js';
 import { createApiKeyRepository, createTenantRepository } from '../db/tenants.js';
 import { GuardedLedgerGateway, type GuardedOptions } from '../gateways/guarded.js';
@@ -23,6 +25,8 @@ export interface AppConfig {
     source: PayoutSource;
     invoices: InvoiceReader;
     gateway: LedgerGateway;
+    /** Beskriver affärssystemet (förmågor, anslutningstest) för onboarding. Utan den visas inga förmågor. */
+    provider?: LedgerProvider;
   };
   logger?: Logger;
   /**
@@ -76,6 +80,7 @@ export function createApp(config: AppConfig) {
     proposals: repos.proposals,
     guard: repos.guard,
     guardForUow: (r) => r.guard,
+    onboarding: createOnboardingService(db, clock, config.adapters.provider),
     ping: async () => {
       await db.query('select 1');
     },

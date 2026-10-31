@@ -11,6 +11,8 @@ import {
   describeCommand,
   formatAmount,
   parseHash,
+  ONBOARDING_PHASE,
+  validateGoLive,
   validateGuardResolve,
   validateResolve,
   voucherBalance,
@@ -208,7 +210,7 @@ describe('gränssnittets logik (web/lib.js)', () => {
     expect(parseHash('#/utbetalningar/a%2Fb')).toEqual({ page: 'utbetalningar', id: 'a/b' });
     expect(parseHash('#/finns-inte/x')).toEqual({ page: 'oversikt', id: null });
     expect(parseHash('#/forslag/%E0%A4%A')).toEqual({ page: 'forslag', id: null }); // trasig kodning kraschar inte
-    expect(PAGES).toEqual(['oversikt', 'forslag', 'utbetalningar', 'avvikelser', 'osakra']);
+    expect(PAGES).toEqual(['oversikt', 'start', 'forslag', 'utbetalningar', 'avvikelser', 'osakra']);
   });
 
   it('ger begripliga felmeddelanden och läcker inget oväntat', () => {
@@ -218,6 +220,14 @@ describe('gränssnittets logik (web/lib.js)', () => {
     expect(apiErrorMessage(409, { error: { message: 'Avvikelsen är inte öppen' } })).toContain('inte öppen');
     expect(apiErrorMessage(500, { error: { message: 'intern stacktrace' } })).not.toContain('stacktrace');
     expect(apiErrorMessage(418, null)).toBe('Något gick fel.');
+  });
+
+  it('beskriver varje fas i onboardingen och kräver bekräftad granskning vid go-live', () => {
+    expect(Object.keys(ONBOARDING_PHASE)).toEqual(['setup', 'review', 'live']);
+    for (const phase of Object.values(ONBOARDING_PHASE)) expect(phase.help.length).toBeGreaterThan(0);
+    expect(validateGoLive({ reviewed: true })).toBeNull();
+    expect(validateGoLive({ reviewed: false })).toContain('granskat');
+    expect(validateGoLive({})).toContain('granskat');
   });
 
   it('validerar formulär med samma regler som API:t', () => {

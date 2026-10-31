@@ -174,7 +174,7 @@ export function voucherBalance(lines) {
   return { debit, credit, balanced: debit === credit };
 }
 
-export const PAGES = ['oversikt', 'forslag', 'utbetalningar', 'avvikelser', 'osakra'];
+export const PAGES = ['oversikt', 'start', 'forslag', 'utbetalningar', 'avvikelser', 'osakra'];
 
 /** "#/forslag/UTB-1" -> { page: 'forslag', id: 'UTB-1' }. Okända sidor blir översikten. */
 export function parseHash(hash) {
@@ -216,6 +216,19 @@ export function apiErrorMessage(status, body, retryAfterSec) {
     default:
       return status >= 500 ? 'Något gick fel hos servern. Försök igen om en stund.' : 'Något gick fel.';
   }
+}
+
+/** Fas i onboardingen: vad den betyder för användaren. */
+export const ONBOARDING_PHASE = {
+  setup: { label: 'Pågår', tone: 'warn', help: 'Något återstår innan förslagen kan godkännas.' },
+  review: { label: 'Redo för granskning', tone: 'ok', help: 'Allt är på plats. Granska förslagen och godkänn när de stämmer.' },
+  live: { label: 'Live', tone: 'ok', help: 'Kunden bokför på riktigt.' },
+};
+
+/** Valideringsfel (text) eller null för godkännande av go-live. Granskningen måste vara bekräftad. */
+export function validateGoLive({ reviewed }) {
+  if (reviewed !== true) return 'Bekräfta att du har granskat förslagen innan du godkänner.';
+  return null;
 }
 
 /** Valideringsfel (text) eller null. Samma regler som API:t (1 till 2000 tecken efter trim). */
