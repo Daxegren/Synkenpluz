@@ -37,7 +37,7 @@ describe('kundkonfiguration', () => {
     expect(await listSyncableTenants(db)).toEqual([]);
 
     expect(await setTenantAccounts(db, 'T1', accounts)).toBe(true);
-    expect(await provider.get('T1')).toEqual({ accounts, mode: 'dry_run' });
+    expect(await provider.get('T1')).toEqual({ accounts, mode: 'dry_run', allowPartialPayments: false });
     expect(await listSyncableTenants(db)).toEqual(['T1']);
   });
 
