@@ -104,6 +104,25 @@ describe.skipIf(!PG_URL)('Postgres: gallring, mätvärden, förslag och skyddsga
     expect(await repos.proposals.delete('T1', 'P1')).toBe(true);
   });
 
+  it('sidindelning av förslag och osäkra anrop sker i SQL och ger stabila sidor', async () => {
+    const { repos, clock } = await setup();
+    for (let i = 0; i < 9; i++) await repos.proposals.upsert('T1', `P${i}`, { status: 'partial', commands: [], exceptions: [] }, clock.now());
+    await repos.proposals.upsert('T2', 'ANNAN', { status: 'partial', commands: [], exceptions: [] }, clock.now());
+    const all = (await repos.proposals.list('T1')).map((p) => p.payoutId);
+    const paged: string[] = [];
+    for (let offset = 0; offset < 9; offset += 4) paged.push(...(await repos.proposals.list('T1', { limit: 4, offset })).map((p) => p.payoutId));
+    expect(paged).toEqual(all);
+    expect(all).toHaveLength(9);
+
+    for (let i = 0; i < 5; i++) await repos.guard.begin('T1', `k${i}`, clock.now());
+    await repos.guard.begin('T2', 'annan', clock.now());
+    const keys = (await repos.guard.listInDoubt('T1')).map((g) => g.key);
+    const pagedKeys: string[] = [];
+    for (let offset = 0; offset < 5; offset += 2) pagedKeys.push(...(await repos.guard.listInDoubt('T1', { limit: 2, offset })).map((g) => g.key));
+    expect(pagedKeys).toEqual(keys);
+    expect(keys).toEqual(['k0', 'k1', 'k2', 'k3', 'k4']);
+  });
+
   it('skyddsgateway: förlorat svar skickas aldrig om, två samtidiga anrop bokför en gång', async () => {
     const { db, clock } = await setup();
     const applied: string[] = [];

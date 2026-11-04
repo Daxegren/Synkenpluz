@@ -59,10 +59,13 @@ export class MemoryGatewayGuardStore implements GatewayGuardStore {
     return true;
   }
 
-  async listInDoubt(tenantId?: string) {
-    return [...this.entries.entries()]
+  async listInDoubt(tenantId?: string, page: { limit?: number; offset?: number } = {}) {
+    const all = [...this.entries.entries()]
       .map(([id, e]) => ({ id: JSON.parse(id) as [string, string], e }))
       .filter(({ id, e }) => e.state === 'started' && (tenantId === undefined || id[0] === tenantId))
-      .map(({ id, e }) => ({ tenantId: id[0], key: id[1], startedAt: e.startedAt }));
+      .map(({ id, e }) => ({ tenantId: id[0], key: id[1], startedAt: e.startedAt }))
+      .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const offset = page.offset ?? 0;
+    return all.slice(offset, page.limit === undefined ? undefined : offset + page.limit);
   }
 }

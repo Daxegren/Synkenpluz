@@ -14,6 +14,14 @@ export interface RateLimiterOptions {
   sleep?: ((ms: number) => Promise<void>) | undefined;
 }
 
+/**
+ * Fortnox tillåter 25 anrop per 5 sekunder **per åtkomsttoken** (alltså per kund, så använd en egen limiter per kund).
+ * Hinken ger högst `burst + 5 * perSecond` anrop i något fönster på 5 sekunder: 5 + 5 * 4 = 25, exakt gränsen och aldrig över.
+ * En högre genomsnittlig takt än 4 per sekund (t.ex. 5 med skur 25) skulle ge upp till 50 anrop i ett fönster.
+ * Källa: Fortnox API-dokumentation via Apideck (se docs/KONKURRENTANALYS.md avsnitt 4). Bekräfta mot Fortnox egen portal.
+ */
+export const FORTNOX_RATE_LIMIT = { perSecond: 4, burst: 5 } as const;
+
 const defaultClock: Clock = { now: () => new Date() };
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

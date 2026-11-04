@@ -85,6 +85,8 @@ const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 500;
 const MAX_PAGE_OFFSET = 1_000_000;
 const READY_TIMEOUT_MS = 3000;
+/** Sammanställningen av förslag läser högst så här många. Fler visas som `truncated: true`. */
+const SUMMARY_MAX_PROPOSALS = 5000;
 
 // ---------------------------------------------------------------- fel
 
@@ -226,11 +228,6 @@ async function paginated<T, U>(
   const offset = q.offset ?? 0;
   const rows = await fetchRows(limit + 1, offset);
   return { items: rows.slice(0, limit).map(present), limit, offset, hasMore: rows.length > limit };
-}
-
-/** Sidindelning i minnet, för portar som ännu saknar limit/offset. */
-function paginateInMemory<T, U>(all: T[], q: Pagination, present: (row: T) => U) {
-  return paginated(q, async (limit, offset) => all.slice(offset, offset + limit), present);
 }
 
 const sha256 = (v: string): Buffer => createHash('sha256').update(v, 'utf8').digest();
@@ -466,12 +463,20 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
     if (proposals) {
       v1.get('/proposals', async (request) => {
         const q = parse(proposalsQuery, request.query, 'query');
-        const all = await proposals.list(request.tenantId, q.status !== undefined ? { status: q.status } : undefined);
-        return paginateInMemory(all, q, presentProposalSummary);
+        return paginated(
+          q,
+          (limit, offset) => proposals.list(request.tenantId, { ...(q.status !== undefined ? { status: q.status } : {}), limit, offset }),
+          presentProposalSummary,
+        );
       });
 
       // Sammanställning av träffsäkerhet över alla sparade förslag. Bara antal, inga belopp eller referenser.
-      v1.get('/proposals/summary', async (request) => summarizeProposals(await proposals.list(request.tenantId)));
+      // Läser högst SUMMARY_MAX_PROPOSALS förslag, så att en enda förfrågan aldrig laddar obegränsat med data.
+      v1.get('/proposals/summary', async (request) => {
+        const rows = await proposals.list(request.tenantId, { limit: SUMMARY_MAX_PROPOSALS + 1 });
+        const truncated = rows.length > SUMMARY_MAX_PROPOSALS;
+        return { ...summarizeProposals(truncated ? rows.slice(0, SUMMARY_MAX_PROPOSALS) : rows), truncated };
+      });
 
       // Underlag för redovisningskonsulten: CSV med semikolon och decimalkomma.
       v1.get('/proposals/:payoutId/export.csv', async (request, reply) => {
@@ -534,8 +539,12 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
       v1.get('/guard/in-doubt', async (request) => {
         const q = parse(pageQuery, request.query, 'query');
         const tenantId = request.tenantId;
-        const all = (await guard.listInDoubt(tenantId)).filter((g) => g.tenantId === tenantId);
-        return paginateInMemory(all, q, (g) => ({ key: g.key, startedAt: g.startedAt.toISOString() }));
+        // Filtreras på kund även här, som ett andra lås utöver frågan.
+        return paginated(
+          q,
+          async (limit, offset) => (await guard.listInDoubt(tenantId, { limit, offset })).filter((g) => g.tenantId === tenantId),
+          (g) => ({ key: g.key, startedAt: g.startedAt.toISOString() }),
+        );
       });
 
       v1.post('/guard/resolve', async (request) => {

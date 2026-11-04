@@ -205,7 +205,8 @@ export interface StoredProposal {
 export interface ProposalRepository {
   /** Sparar förslaget. Returnerar true om det är nytt eller skiljer sig från det som låg där. */
   upsert(tenantId: string, payoutId: string, result: ReconcileResult, now: Date): Promise<boolean>;
-  list(tenantId: string, filter?: { status?: ReconcileResult['status'] }): Promise<StoredProposal[]>;
+  /** Sorterat på ändringstid och utbetalnings-id, så att `limit` och `offset` ger stabila sidor. */
+  list(tenantId: string, filter?: { status?: ReconcileResult['status']; limit?: number; offset?: number }): Promise<StoredProposal[]>;
   get(tenantId: string, payoutId: string): Promise<StoredProposal | null>;
   /** Tar bort förslaget (t.ex. när utbetalningen bokförts på riktigt). */
   delete(tenantId: string, payoutId: string): Promise<boolean>;
@@ -230,5 +231,6 @@ export interface GatewayGuardStore {
   /** Mänsklig åtgärd efter kontroll i affärssystemet: avgör ett osäkert utfall. */
   resolve(tenantId: string, key: string, outcome: { applied: true; externalId: string } | { applied: false }, now: Date): Promise<boolean>;
   /** Alla osäkra anrop (att visa för en människa). */
-  listInDoubt(tenantId?: string): Promise<Array<{ tenantId: string; key: string; startedAt: Date }>>;
+  /** Sorterat på starttid och nyckel, så att `limit` och `offset` ger stabila sidor. */
+  listInDoubt(tenantId?: string, page?: { limit?: number; offset?: number }): Promise<Array<{ tenantId: string; key: string; startedAt: Date }>>;
 }

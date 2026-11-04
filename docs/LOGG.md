@@ -143,3 +143,9 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 `npm run demo:web` startar gränssnittet med två påhittade kunder (`src/demo/seed.ts`): en i testläge med åtta förslag och en som bokför på riktigt med avvikelse, dött kommando och osäkert anrop. Skärmbilder granskades i en riktig webbläsare.
 
 **Vad granskningen av skärmbilderna hittade:** ett verifikat i EUR visade beloppen som "kr" (formatering utan valuta), och `ACCOUNTS_MISSING`-flödet hade inte synts i något test av gränssnittet. Verifikatets valuta följer nu med till tabellen. Seedens första version använde också en faktura som redan var betald i en utbetalning med både betalning och återbetalning, vilket motorn med rätta ger en avvikelse för (golden 12 kräver en öppen faktura), så den delen rättades.
+
+## 2026-11-04: härdning
+
+Sidindelning i SQL för förslag och osäkra anrop, begränsad sammanställning (`truncated`), `FORTNOX_RATE_LIMIT` med ett test som mäter värsta fönstret. Se ADR-017, som också förklarar vad som medvetet lämnades: främmande nycklar, schemalagd gallring, e-postlarm och delad hastighetsbegränsning.
+
+**Det som den "naturliga" inställningen hade gett:** 5 anrop per sekund med skur 25 ser ut att passa Fortnox gräns (25 per 5 sekunder) men ger upp till 50 anrop i ett fönster, eftersom hinken både tömmer skuren och fylls på under samma 5 sekunder. Testet visar det.

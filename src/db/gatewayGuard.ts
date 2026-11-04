@@ -50,11 +50,13 @@ export function createGatewayGuardStore(db: Db): GatewayGuardStore {
       return rows.length > 0;
     },
 
-    async listInDoubt(tenantId) {
+    async listInDoubt(tenantId, page = {}) {
       const rows = await db.query<{ tenant_id: string; key: string; started_at: Date }>(
         `select tenant_id, key, started_at from gateway_guard
-          where state = 'started' and ($1::text is null or tenant_id = $1) order by started_at`,
-        [tenantId ?? null],
+          where state = 'started' and ($1::text is null or tenant_id = $1)
+          order by started_at, key
+          limit $2 offset $3`,
+        [tenantId ?? null, page.limit ?? null, page.offset ?? 0],
       );
       return rows.map((r) => ({ tenantId: r.tenant_id, key: r.key, startedAt: r.started_at }));
     },

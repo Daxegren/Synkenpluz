@@ -53,8 +53,9 @@ export function createProposalRepository(db: Db): ProposalRepository {
       const rows = await db.query<Row>(
         `select * from dry_run_proposal
           where tenant_id = $1 and ($2::text is null or status = $2)
-          order by updated_at, payout_id`,
-        [tenantId, filter.status ?? null],
+          order by updated_at, payout_id
+          limit $3 offset $4`,
+        [tenantId, filter.status ?? null, filter.limit ?? null, filter.offset ?? 0],
       );
       return rows.map(toProposal);
     },

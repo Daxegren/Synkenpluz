@@ -52,9 +52,9 @@ Likaså: gatewayens **idempotens**. Den är nu skyddad av `GuardedLedgerGateway`
 - Webbgränssnittet (`/app`) finns för granskning, men det saknar användarkonton, roller och SSO (alla med en kunds API-nyckel kan allt API:t tillåter), sökning och sortering i listor. Godkännande av go-live finns (sidan *Kom igång*, `POST /v1/onboarding/go-live`) och kräver rollen `approver`. Rollen hör till en nyckel, inte en person, och det finns ingen tvåpersonsregel; användarkonton och SSO saknas. `set-mode` finns kvar för drift.
 - Larm skickas via webhook (`ALERT_WEBHOOK_URL`) men inte via e-post eller pager.
 - Ingen KMS-integration. `KeyProvider` är ett gränssnitt och nycklarna hålls i miljövariabler.
-- Rate limiting i API:t ligger i processminne och delas inte mellan instanser. Paginering av förslag och osäkra anrop sker i minnet.
+- Rate limiting i API:t ligger i processminne och delas inte mellan instanser, så tjänsten ska köras som **en** instans tills det byggts om (kräver en delad lagring). Sidindelning av förslag och osäkra anrop sker i SQL; sammanställningen av förslag läser högst 5 000.
 - Gallring körs bara manuellt och gränsvärdena är inte avstämda med en redovisningskonsult.
-- `ledger_command`, `reconcile_exception`, `payout` och `audit_log` saknar främmande nyckel mot `tenant`.
+- `ledger_command`, `reconcile_exception`, `payout` och `audit_log` saknar främmande nyckel mot `tenant`. **Medvetet kvar** (ADR-017): ingen funktion raderar kunder, och en främmande nyckel skulle kräva att drygt femtio tester skapar kundrader de idag inte behöver. Gör det när kunder ska kunna tas bort.
 - Produkt-, lager- och prissynk samt order- och fakturaskapande (det Synka+ gör utöver avstämning) är inte påbörjat.
 
 ## Det som kräver en människa, inte mig

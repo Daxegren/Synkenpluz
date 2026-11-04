@@ -152,7 +152,7 @@ Svar `200`: `{ "items": [ { "payoutId": "P1", "status": "partial", "commandCount
 
 Träffsäkerhet över alla sparade dry_run-förslag. **Bara antal**, inga belopp, referenser eller fakturanummer. Finns bara om `proposals` är kopplad (annars `404`).
 
-Svar `200`: `{ "payouts": { "total", "complete", "partial", "rejected" }, "lines": { "matched", "unmatched" }, "lineMatchRate": 0.83, "fullyAutomaticRate": 0.5, "exceptionsByCode": [ { "code": "NO_MATCH", "count": 4 } ] }`. Andelarna är `null` när det inte finns något att räkna på (inte 0). Avvikelsekodernas betydelse står i [RUNBOOK.md](RUNBOOK.md).
+Svar `200`: `{ "payouts": { "total", "complete", "partial", "rejected" }, "lines": { "matched", "unmatched" }, "lineMatchRate": 0.83, "fullyAutomaticRate": 0.5, "exceptionsByCode": [ { "code": "NO_MATCH", "count": 4 } ], "truncated": false }`. Läser högst 5 000 förslag; finns fler är `truncated` true och sammanställningen avser de första 5 000. Andelarna är `null` när det inte finns något att räkna på (inte 0). Avvikelsekodernas betydelse står i [RUNBOOK.md](RUNBOOK.md).
 
 ### `GET /v1/proposals/:payoutId/export.csv`
 

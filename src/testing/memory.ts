@@ -239,6 +239,7 @@ export function createMemoryProposalRepository(): ProposalRepository {
       return [...rows.values()]
         .filter((p) => p.tenantId === tenantId && (filter?.status === undefined || p.status === filter.status))
         .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || (a.payoutId < b.payoutId ? -1 : 1))
+        .slice(filter?.offset ?? 0, filter?.limit === undefined ? undefined : (filter.offset ?? 0) + filter.limit)
         .map(copy);
     },
     async get(tenantId, payoutId) {
@@ -286,10 +287,12 @@ export function createMemoryGatewayGuardStore(): GatewayGuardStore {
       }
       return true;
     },
-    async listInDoubt(tenantId) {
+    async listInDoubt(tenantId, page = {}) {
+      const offset = page.offset ?? 0;
       return [...rows.values()]
         .filter((r) => r.state === 'started' && (tenantId === undefined || r.tenantId === tenantId))
-        .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+        .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+        .slice(offset, page.limit === undefined ? undefined : offset + page.limit)
         .map((r) => ({ tenantId: r.tenantId, key: r.key, startedAt: new Date(r.startedAt) }));
     },
   };

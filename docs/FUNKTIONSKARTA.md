@@ -142,7 +142,7 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Funktion | Vad den gör | Kod | Test | Status |
 | --- | --- | --- | --- | --- |
 | HTTP-klient | Timeout, svarsstorlek, rate limiter, auth-header, ett omförsök vid 401, aldrig hemligheter i fel | `createHttpClient` i `src/http/client.ts` | `test/http/client.test.ts` | ✅ |
-| Rate limiter mot leverantör | Token bucket, FIFO | `createRateLimiter` i `src/http/rateLimiter.ts` | `test/http/rateLimiter.test.ts` | ✅ |
+| Rate limiter mot leverantör | Token bucket, FIFO. Förinställningen `FORTNOX_RATE_LIMIT` (4 per sekund, skur 5) ger bevisat aldrig fler än 25 anrop per 5 sekunder; en limiter per kund | `createRateLimiter`, `FORTNOX_RATE_LIMIT` i `src/http/rateLimiter.ts` | `test/http/rateLimiter.test.ts` | ✅ |
 | OAuth2-token | Cachar, förnyar före utgång, serialiserar förnyelser, roterar refresh-token via callback | `createOAuth2TokenProvider` i `src/http/oauth.ts` | `test/http/oauth.test.ts` | ✅ |
 
 ### Gränssnitt för människor
@@ -158,7 +158,8 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Godkänna go-live | `POST /v1/onboarding/go-live` byter kund från dry_run till live efter att checklistan är klar. Kräver `approvedProposalCount` lika med antalet förslag just nu (annars `stale_review`), så att godkännaren har sett det som bokförs. Lägesbyte och revisionspost `tenant.go_live` skrivs atomiskt, och kundens rad låses så att två godkännanden samtidigt ger ett | `createOnboardingService` (`goLive`) | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Beskriva och testa affärssystemet | `LedgerProvider` anger vad ett affärssystem kan (`LedgerCapabilities`: söka på referens, idempotens, verifiera osäkra utfall, kreditera, verifikat) och har ett skrivskyddat anslutningstest (`POST /v1/onboarding/check-connection`). `describeCapabilities` översätter luckor till konsekvenser för en handläggare. Gör Fortnox, Spiris och Briox utbytbara i checklistan | `LedgerProvider` i `src/ports/ledger.ts`, `describeCapabilities` | `ledgerProviderContract` i `test/contracts/ports.contract.ts` | ✅ (inga riktiga adaptrar än) |
 | Flera valutor | En utbetalning i en annan valuta än SEK bokförs på kundens egna konton för den valutan (`AccountMapping.foreign`), och verifikatet märks med valutan. Saknas konton skapas inget verifikat (`ACCOUNTS_MISSING`) men betalningarna på fakturorna hanteras. Ingen växling och inga kursdifferenser. Före detta bokfördes belopp i en annan valuta tyst på SEK-konton | `reconcile`, `BASE_CURRENCY`, `accountMappingSchema` | `test/currency-partial.test.ts`, golden 10 | ✅ (växling och kursdifferenser saknas) |
-| Delbetalningar | Inställning per kund (`set-option <kund> partial-payments on`, av som standard). En betalning mindre än fakturans saldo registreras som det som betalats, `remaining` anger resten. Större än saldot är alltid en avvikelse | `reconcile`, `setTenantOption`, migration `008_tenant_partial_payments` | `test/demo.test.ts` | Demodatan: rätt roller, förslag av alla slag, EUR och delkreditering, livekundens avvikelse och osäkra anrop, att godkännaren kan gå live och läsaren inte |
+| Delbetalningar | Inställning per kund (`set-option <kund> partial-payments on`, av som standard). En betalning mindre än fakturans saldo registreras som det som betalats, `remaining` anger resten. Större än saldot är alltid en avvikelse | `reconcile`, `setTenantOption`, migration `008_tenant_partial_payments` | `test/pagination.test.ts` | Sidindelning i SQL av förslag och osäkra anrop (PGlite, minne och fakeGuard mot samma krav), begränsad sammanställning, och att Fortnox-förinställningen aldrig ger fler än 25 anrop per 5 sekunder |
+| `test/demo.test.ts` | Demodatan: rätt roller, förslag av alla slag, EUR och delkreditering, livekundens avvikelse och osäkra anrop, att godkännaren kan gå live och läsaren inte |
 | `test/currency-partial.test.ts` | ✅ |
 | Roller för API-nycklar | `viewer` läser, `operator` (standard) hanterar även avvikelser, köar om kommandon, avgör osäkra anrop och testar anslutningen, `approver` godkänner även go-live. Rollen kontrolleras i servern före validering av body (`403 forbidden`). Okänd roll i databasen ger `viewer`. Utfärdas med `issue-key <kund> [dagar] [roll]` | `requireRole` i `src/api/server.ts`, `hasRole`, `isApiKeyRole`, `API_KEY_ROLES`, `DEFAULT_API_KEY_ROLE` i `src/security/apiKeys.ts`, migration `007_api_key_role` | `test/roles.test.ts` | ✅ |
 | `test/roles.test.ts` | ✅ |
@@ -279,7 +280,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- | --- |
 | `src/http/client.ts` | Robust HTTP-klient (timeout, storleksgräns, auth, 401-omförsök, inga hemligheter i fel) | `createHttpClient` · konstant `DEFAULT_MAX_RESPONSE_BYTES` |
 | `src/http/errors.ts` | En enda klassningstabell från HTTP-utfall till `LedgerError` | `classifyHttpFailure` · `toLedgerError` · `failureToLedgerError` · `parseRetryAfter` · `errorCode` · `safePath` · klassen `HttpLedgerError` · konstant `MAX_RETRY_AFTER_MS` |
-| `src/http/rateLimiter.ts` | Token bucket mot leverantörens gränser | `createRateLimiter` |
+| `src/http/rateLimiter.ts` | Token bucket mot leverantörens gränser | `createRateLimiter` · `FORTNOX_RATE_LIMIT` |
 | `src/http/oauth.ts` | OAuth2-tokenhantering med serialiserad förnyelse | `createOAuth2TokenProvider` |
 
 ### `src/app/` och `src/main.ts`: sammansättning och start

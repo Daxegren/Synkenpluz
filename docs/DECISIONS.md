@@ -178,3 +178,15 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 **Alternativ:** att alltid tillåta delbetalningar (bryter mot "bokför aldrig på gissning" för kunder som inte avgjort det), eller att avvisa alla utbetalningar utanför SEK (säkert men gör oss oanvändbara för handlare med utländsk försäljning).
 
 **Konsekvens:** ändringen **rättar** ett befintligt beteende: EUR-utbetalningar utan EUR-konton gav tidigare ett verifikat på SEK-konton och ger nu en avvikelse. Golden-test 10 beskrev det gamla beteendet och uppdaterades. Hur verifikat i utländsk valuta ska anges i Fortnox (kurs, omräknat belopp) och hur kursdifferenser bokförs är öppna frågor till redovisningskonsulten (D7).
+
+## ADR-017: Vad härdningen gjorde, och vad den medvetet lät bli
+
+**Gjort:** (1) Sidindelning av förslag och osäkra anrop sker nu i SQL (`limit`/`offset`, stabil ordning) i stället för att ladda allt i minnet. Sammanställningen av förslag läser högst 5 000 och säger `truncated` när den kapats, så en enda förfrågan aldrig laddar obegränsat. (2) `FORTNOX_RATE_LIMIT` (4 per sekund, skur 5) för Fortnox gräns om 25 anrop per 5 sekunder. Siffrorna är valda så att `skur + 5 × takt = 25`; ett test mäter värsta fönstret under full belastning, och ett annat visar att den "naturliga" inställningen (5 per sekund, skur 25) skulle ge upp till 50.
+
+**Medvetet inte gjort, och varför:**
+- *Främmande nycklar mot `tenant` på köns tabeller.* Ingen funktion raderar kunder, så en föräldralös rad kan inte uppstå i drift. Att lägga till nycklarna kräver att drygt femtio tester skapar kundrader de idag inte behöver, utan att något skyddas som inte redan är skyddat. Görs när kundborttagning införs.
+- *Schemalagd gallring.* Gallring raderar data och går inte att ångra, och gränsvärdena är inte avstämda med en redovisningskonsult (D6 i BESLUT_REDOVISNING). Hellre manuell körning med torrkörning först än automatisk radering på gissade tider.
+- *Larm via e-post.* Kräver ett konto hos en e-postleverantör eller en SMTP-server, alltså något utanför repot. Webhook-larmet kan vidarebefordras till e-post eller Slack utan ändring i koden.
+- *Delad hastighetsbegränsning i API:t.* Kräver en delad lagring (till exempel databasen eller Redis) och är bara ett problem med flera instanser. Tills dess körs tjänsten som en instans.
+
+**Konsekvens:** listan över kända luckor i NEXT_STEPS är kortare men inte tom, och varje punkt som återstår har ett skäl i stället för att bara vara osagd.
