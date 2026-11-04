@@ -371,10 +371,10 @@ async function proposalDetailView(payoutId) {
               'tbody',
               {},
               d.voucher.map((l) =>
-                h('tr', {}, h('td', { class: 'mono' }, l.account), h('td', { class: 'num' }, l.debit ? formatAmount(l.debit) : ''), h('td', { class: 'num' }, l.credit ? formatAmount(l.credit) : '')),
+                h('tr', {}, h('td', { class: 'mono' }, l.account), h('td', { class: 'num' }, l.debit ? formatAmount(l.debit, d.currency) : ''), h('td', { class: 'num' }, l.credit ? formatAmount(l.credit, d.currency) : '')),
               ),
             ),
-            h('tfoot', {}, h('tr', {}, [h('td', {}, 'Summa'), h('td', { class: 'num' }, formatAmount(sums.debit)), h('td', { class: 'num' }, formatAmount(sums.credit))])),
+            h('tfoot', {}, h('tr', {}, [h('td', {}, 'Summa'), h('td', { class: 'num' }, formatAmount(sums.debit, d.currency)), h('td', { class: 'num' }, formatAmount(sums.credit, d.currency))])),
           ),
         ),
         sums.balanced ? badge('ok', 'Verifikatet balanserar') : badge('bad', 'Verifikatet balanserar inte'),

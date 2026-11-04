@@ -168,6 +168,7 @@ export function describeCommand(command) {
           ...(command.currency && command.currency !== 'SEK' ? [['Valuta', command.currency]] : []),
         ],
         voucher: command.lines ?? [],
+        currency,
       };
     default:
       return { title: String(command.kind), rows: [] };

@@ -137,3 +137,9 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 | Delbetalningar | Inställning per kund (`set-option`), migration 008, `remaining` på kommandot, stöd i fakegatewayen, i gränssnittet och i CSV-underlaget |
 
 **Ett befintligt fel hittades:** en utbetalning där allt var i EUR bokfördes på SEK-konton utan invändning. Golden-test 10 hade skrivits för att *bekräfta* det. Det är rättat, och testet beskriver nu den nya regeln.
+
+## 2026-11-04: demoläge för webbgränssnittet
+
+`npm run demo:web` startar gränssnittet med två påhittade kunder (`src/demo/seed.ts`): en i testläge med åtta förslag och en som bokför på riktigt med avvikelse, dött kommando och osäkert anrop. Skärmbilder granskades i en riktig webbläsare.
+
+**Vad granskningen av skärmbilderna hittade:** ett verifikat i EUR visade beloppen som "kr" (formatering utan valuta), och `ACCOUNTS_MISSING`-flödet hade inte synts i något test av gränssnittet. Verifikatets valuta följer nu med till tabellen. Seedens första version använde också en faktura som redan var betald i en utbetalning med både betalning och återbetalning, vilket motorn med rätta ger en avvikelse för (golden 12 kräver en öppen faktura), så den delen rättades.

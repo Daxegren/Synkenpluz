@@ -156,6 +156,7 @@ Kräver Node.js 22 eller senare.
 npm install
 npm run check    # typkontroll och tester (PGlite, ingen databas behövs)
 npm run demo     # berättande genomkörning av hela flödet med simulerade system
+npm run demo:web # webbgränssnittet med färdig exempeldata (två påhittade kunder), för att visa upp det
 npm run test:pg  # tester mot en temporär riktig Postgres (kräver Postgres 16-binärer)
 npm run smoke    # rökprov: temporär Postgres, admin-verktyg, server, API, nedstängning
 npm run build    # kompilera till dist/  (SMOKE_PROD=1 npm run smoke provar det kompilerade bygget)

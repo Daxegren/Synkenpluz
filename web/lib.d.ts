@@ -11,6 +11,8 @@ export function describeCommand(command: Record<string, unknown>): {
   title: string;
   rows: Array<[string, string]>;
   voucher?: Array<{ account: number; debit: number; credit: number }>;
+  /** Valutan beloppen i verifikatet är i (SEK om inget annat anges). */
+  currency?: string;
 };
 export function voucherBalance(lines: Array<{ debit: number; credit: number }>): { debit: number; credit: number; balanced: boolean };
 export const PAGES: string[];

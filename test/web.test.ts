@@ -203,6 +203,8 @@ describe('gränssnittets logik (web/lib.js)', () => {
     const voucher = describeCommand({ kind: 'post_voucher', description: 'Utbetalning U1', date: '2026-10-28', lines });
     expect(voucher.voucher).toHaveLength(4);
     expect(voucherBalance(lines)).toEqual({ debit: 208900, credit: 208900, balanced: true });
+    expect(voucher.currency).toBe('SEK');
+    expect(describeCommand({ kind: 'post_voucher', description: 'U', date: '2026-10-28', currency: 'EUR', lines }).currency).toBe('EUR');
     expect(voucherBalance([{ debit: 100, credit: 0 }, { debit: 0, credit: 99 }]).balanced).toBe(false);
   });
 
