@@ -168,3 +168,13 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 **Alternativ:** en separat adminnyckel utanför kunden (kräver en helt ny identitet), eller riktiga användarkonton och SSO (rätt på sikt men betydligt större). Roller per nyckel är det minsta som stänger hålet.
 
 **Konsekvens:** rollen hör till en nyckel, inte till en person, och det finns ingen tvåpersonsregel. En kund som delar en nyckel mellan flera personer får ingen nytta av rollerna.
+
+## ADR-016: Konton per valuta, och delbetalningar som medveten inställning
+
+**Bakgrund:** motorn avvisade utbetalningar där raderna hade annan valuta än utbetalningen, men en utbetalning där *allt* var i EUR bokfördes utan invändning, på kundens SEK-konton, som om beloppen vore kronor. Det är ett tyst fel i bokföringen. Mondido Basic anger dessutom stöd för alla valutor. Delbetalningar (en betalning mindre än fakturans saldo) blev alltid en avvikelse.
+
+**Beslut:** (1) Kontoplanen får `foreign`: egna fyra konton per valutakod. Verifikatets konton väljs efter utbetalningens valuta; saknas de skapas inget verifikat (`ACCOUNTS_MISSING`), men betalningarna på fakturorna görs eftersom de inte rör några konton. Verifikatet märks med `currency` bara när det inte är SEK, så att redan köade SEK-verifikat är oförändrade och inte ger `COMMAND_CONFLICT`. (2) Delbetalning är en inställning per kund, **av som standard**. En mindre betalning registreras då som det som betalats, med `remaining`. En större betalning, och en återbetalning mot en delbetald faktura, är alltid en avvikelse. (3) Vi växlar inte och bokför inga kursdifferenser.
+
+**Alternativ:** att alltid tillåta delbetalningar (bryter mot "bokför aldrig på gissning" för kunder som inte avgjort det), eller att avvisa alla utbetalningar utanför SEK (säkert men gör oss oanvändbara för handlare med utländsk försäljning).
+
+**Konsekvens:** ändringen **rättar** ett befintligt beteende: EUR-utbetalningar utan EUR-konton gav tidigare ett verifikat på SEK-konton och ger nu en avvikelse. Golden-test 10 beskrev det gamla beteendet och uppdaterades. Hur verifikat i utländsk valuta ska anges i Fortnox (kurs, omräknat belopp) och hur kursdifferenser bokförs är öppna frågor till redovisningskonsulten (D7).

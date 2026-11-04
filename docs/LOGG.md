@@ -128,3 +128,12 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 **Vad testerna hittade:** säkerhetstestet för webbkoden förbjuder en andra `fetch`, så nedladdningen gick om till den gemensamma `api()` (med `asBlob`). Det håller kvar regeln att nyckeln bara skickas från ett ställe.
 
 **Ett intermittent testfel utreddes, inte avfärdades:** `claimDue under samtidig markSucceeded ...` föll en gång av elva körningar. Köns SQL var rätt (en efterföljare hämtas bara när alla tidigare kommandon i utbetalningen är `succeeded` i databasen). Felet låg i testets egen bokföring: en annan arbetare kunde hämta efterföljaren efter att databasen markerat föregångaren klar men innan den första arbetaren hunnit skriva i sin lokala lista `done`. Testet kontrollerar nu föregångarens status i databasen, vilket är monotont (klar blir aldrig oklar) och därför fritt från kapplöpning. Sex körningar i rad gick igenom efteråt.
+
+## 2026-11-04: flera valutor och delbetalningar
+
+| Del | Vad |
+| --- | --- |
+| Valutor | Konton per valuta (`AccountMapping.foreign`), `ACCOUNTS_MISSING`, verifikat märkt med valuta. `set-accounts` tar valfria valutagrupper. Se ADR-016 |
+| Delbetalningar | Inställning per kund (`set-option`), migration 008, `remaining` på kommandot, stöd i fakegatewayen, i gränssnittet och i CSV-underlaget |
+
+**Ett befintligt fel hittades:** en utbetalning där allt var i EUR bokfördes på SEK-konton utan invändning. Golden-test 10 hade skrivits för att *bekräfta* det. Det är rättat, och testet beskriver nu den nya regeln.

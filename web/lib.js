@@ -121,6 +121,11 @@ export const EXCEPTION_INFO = {
     meaning: 'Leverantören har ändrat eller tagit bort en rad som redan köats för bokföring. Det köade kommandot behålls oförändrat.',
     action: 'Jämför med affärssystemet och avgör manuellt. Gissa inte.',
   },
+  ACCOUNTS_MISSING: {
+    title: 'Konton saknas för valutan',
+    meaning: 'Utbetalningen är i en annan valuta än bokföringsvalutan och kunden har inga konton inställda för den. Betalningarna på fakturorna har hanterats, men inget verifikat har skapats, eftersom belopp i en valuta aldrig bokförs på konton för en annan.',
+    action: 'Ställ in bank-, clearing-, avgifts- och momskonto för valutan (set-accounts med valutakod). Därefter skapas verifikatet vid nästa körning.',
+  },
   INTERNAL_IMBALANCE: {
     title: 'Internt fel i verifikatet',
     meaning: 'Verifikatet balanserade inte. Det ska aldrig hända. Inget verifikat skapades.',
@@ -134,10 +139,11 @@ export function describeCommand(command) {
   switch (command.kind) {
     case 'register_invoice_payment':
       return {
-        title: COMMAND_KIND.register_invoice_payment,
+        title: command.remaining === undefined ? COMMAND_KIND.register_invoice_payment : 'Delbetalning på faktura',
         rows: [
           ['Faktura', command.invoiceId],
           ['Belopp', formatAmount(command.amount, currency)],
+          ...(command.remaining === undefined ? [] : [['Kvar att betala efteråt', formatAmount(command.remaining, currency)]]),
           ['Datum', command.date],
         ],
       };
@@ -159,6 +165,7 @@ export function describeCommand(command) {
         rows: [
           ['Text', command.description],
           ['Datum', command.date],
+          ...(command.currency && command.currency !== 'SEK' ? [['Valuta', command.currency]] : []),
         ],
         voucher: command.lines ?? [],
       };

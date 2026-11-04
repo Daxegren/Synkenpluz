@@ -28,6 +28,8 @@ export interface TenantConfig {
   accounts: AccountMapping;
   /** Nya kunder startar i dry_run tills förslagen godkänts. */
   mode: 'dry_run' | 'live';
+  /** Registrera betalningar som är mindre än fakturans saldo som delbetalningar. Saknas den är det av. */
+  allowPartialPayments?: boolean;
 }
 
 export interface TenantConfigProvider {

@@ -171,14 +171,25 @@ describe('golden: verkliga e-handelsfall', () => {
     expect(r2.commands).toEqual([]);
   });
 
-  it('10. faktura i annan valuta: EUR-utbetalning mot EUR-faktura går igenom', () => {
+  it('10. faktura i annan valuta: EUR-utbetalning mot EUR-faktura, verifikat bara på EUR-konton', () => {
     const lines = [payment('p', 'ORD-E1', 9900, { net: 150, vat: 0 }, 'EUR')];
     const invoices = [
       invoice({ id: 'E1', reference: 'ORD-E1', currency: 'EUR', total: 9900, vatTotal: 0, balance: 9900 }),
     ];
-    const result = reconcile(makeInput(lines, invoices, { currency: 'EUR' }));
+    const eur = { bank: 1932, clearing: 1582, feeExpense: 6571, feeVat: 2642 };
+
+    // Utan EUR-konton hanteras betalningen men inget verifikat skapas: EUR får aldrig hamna på SEK-konton.
+    const without = reconcile(makeInput(lines, invoices, { currency: 'EUR' }));
+    expect(without.status).toBe('partial');
+    expect(without.exceptions.map((e) => e.code)).toEqual(['ACCOUNTS_MISSING']);
+    expect(byKind(without, 'post_voucher')).toEqual([]);
+    expect(byKind(without, 'register_invoice_payment')[0]).toMatchObject({ currency: 'EUR', amount: 9900 });
+
+    const input = makeInput(lines, invoices, { currency: 'EUR' });
+    const result = reconcile({ ...input, accounts: { ...input.accounts, foreign: { EUR: eur } } });
     expect(result.status).toBe('complete');
     expect(byKind(result, 'register_invoice_payment')[0]).toMatchObject({ currency: 'EUR', amount: 9900 });
+    expect(byKind(result, 'post_voucher')[0]).toMatchObject({ currency: 'EUR' });
   });
 
   it('11. SEK-utbetalning mot EUR-faktura ger CURRENCY_MISMATCH, rad i annan valuta än utbetalningen avvisar allt', () => {

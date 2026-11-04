@@ -89,12 +89,14 @@ export function proposalToCsv(proposal: StoredProposal): string {
     if (c.kind === 'register_invoice_payment') {
       lines.push(
         row({
-          Typ: 'Betalning',
+          Typ: c.remaining === undefined ? 'Betalning' : 'Delbetalning',
           Rad: safeText(c.lineId),
           Faktura: safeText(c.invoiceId),
           Datum: c.date,
           Valuta: c.currency,
           Belopp: formatKronor(c.amount),
+          // Kvar att betala efteråt, för en delbetalning.
+          Beskrivning: c.remaining === undefined ? '' : `Kvar: ${formatKronor(c.remaining)}`,
         }),
       );
     } else if (c.kind === 'credit_invoice') {
@@ -115,6 +117,7 @@ export function proposalToCsv(proposal: StoredProposal): string {
           row({
             Typ: 'Verifikatrad',
             Datum: c.date,
+            Valuta: c.currency ?? 'SEK',
             Konto: String(l.account),
             Debet: formatKronor(l.debit),
             Kredit: formatKronor(l.credit),

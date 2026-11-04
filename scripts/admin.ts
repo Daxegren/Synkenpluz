@@ -22,7 +22,7 @@ import {
 import { createPgDb } from '../src/db/pg.js';
 import { migrate } from '../src/db/migrations.js';
 import { createAuditLog } from '../src/db/repositories.js';
-import { setTenantAccounts } from '../src/db/syncState.js';
+import { setTenantAccounts, setTenantOption } from '../src/db/syncState.js';
 import { createApiKeyRepository, createTenantRepository } from '../src/db/tenants.js';
 import { API_KEY_ROLES, DEFAULT_API_KEY_ROLE, isApiKeyRole, type ApiKeyRole } from '../src/security/apiKeys.js';
 import { StaticKeyProvider } from '../src/security/crypto.js';
@@ -31,7 +31,8 @@ const credentialsSchema = z.record(z.string(), z.string());
 
 const USAGE = `Kommandon:
   create-tenant <id> <namn>
-  set-accounts <tenant> <bank> <clearing> <feeExpense> <feeVat>
+  set-accounts <tenant> <bank> <clearing> <feeExpense> <feeVat> [<VALUTA> <bank> <clearing> <feeExpense> <feeVat>]...
+  set-option <tenant> partial-payments <on|off>   (delbetalningar, av som standard)
   set-mode <tenant> <dry_run|live>
   suspend <tenant> | activate <tenant>
   issue-key <tenant> [dagar] [viewer|operator|approver]   (roll: operator om inget anges)
@@ -81,16 +82,35 @@ async function main() {
         break;
       }
       case 'set-accounts': {
-        const [t, bank, clearing, feeExpense, feeVat] = args.map((a) => a);
-        const ok = await setTenantAccounts(db, need(t, 'tenant'), {
-          bank: Number(need(bank, 'bank')),
-          clearing: Number(need(clearing, 'clearing')),
-          feeExpense: Number(need(feeExpense, 'feeExpense')),
-          feeVat: Number(need(feeVat, 'feeVat')),
-        });
+        // set-accounts <kund> <bank> <clearing> <avgift> <avgiftsmoms> [<valuta> <bank> <clearing> <avgift> <avgiftsmoms>]...
+        const [t, ...rest] = args;
+        const tenantId = need(t, 'tenant');
+        const nums = (values: string[], what: string) => {
+          if (values.length !== 4) throw new Error(`${what}: ange bank, clearing, avgift och avgiftsmoms`);
+          return { bank: Number(values[0]), clearing: Number(values[1]), feeExpense: Number(values[2]), feeVat: Number(values[3]) };
+        };
+        const main = nums(rest.slice(0, 4), 'Huvudkonton');
+        const foreign: Record<string, ReturnType<typeof nums>> = {};
+        for (let i = 4; i < rest.length; i += 5) {
+          const currency = rest[i];
+          if (currency === undefined || !/^[A-Z]{3}$/.test(currency)) throw new Error(`Ogiltig valutakod "${currency}". Använd tre versaler, t.ex. EUR`);
+          foreign[currency] = nums(rest.slice(i + 1, i + 5), `Konton för ${currency}`);
+        }
+        const ok = await setTenantAccounts(db, tenantId, { ...main, ...(Object.keys(foreign).length > 0 ? { foreign } : {}) });
         if (!ok) throw new Error('Okänd kund');
-        await log(t!, 'tenant.accounts_set');
-        console.log('Kontoplan sparad');
+        await log(tenantId, 'tenant.accounts_set', { currencies: Object.keys(foreign) });
+        console.log(`Kontoplan sparad${Object.keys(foreign).length > 0 ? ` (även ${Object.keys(foreign).join(', ')})` : ''}`);
+        break;
+      }
+      case 'set-option': {
+        const tenantId = need(args[0], 'tenant');
+        const name = need(args[1], 'inställning');
+        const value = need(args[2], 'värde');
+        if (name !== 'partial-payments') throw new Error('Okänd inställning. Giltiga: partial-payments');
+        if (value !== 'on' && value !== 'off') throw new Error('Värdet måste vara on eller off');
+        if (!(await setTenantOption(db, tenantId, 'allowPartialPayments', value === 'on'))) throw new Error('Okänd kund');
+        await log(tenantId, 'tenant.option_set', { option: name, value });
+        console.log(`Inställningen ${name} är ${value} för ${tenantId}`);
         break;
       }
       case 'set-mode': {

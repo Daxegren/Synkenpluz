@@ -91,8 +91,8 @@ För varje beslut: **fråga**, varför det spelar roll, **vårt nuvarande antaga
 ### D4. Delbetalningar och avvikande belopp
 
 **Fråga:** Vad ska hända när en betalning inte exakt motsvarar fakturans obetalda belopp (för lite, för mycket)?
-**Varför det spelar roll:** idag **bokför vi ingenting automatiskt** i det fallet. Det går till avvikelsekön för manuell hantering. Det är säkrast men kan ge mycket manuellt arbete om det är vanligt.
-**Antagande:** exakt belopp krävs. Allt annat blir avvikelse.
+**Varför det spelar roll:** som standard **bokför vi ingenting automatiskt** i det fallet. Det går till avvikelsekön för manuell hantering. Det är säkrast men kan ge mycket manuellt arbete om det är vanligt. Sedan 2026-11 finns **delbetalning som en inställning per kund** (`set-option <kund> partial-payments on`): en betalning som är mindre än fakturans saldo registreras då som det som faktiskt betalats, och fakturan förblir öppen med resten. Det är av som standard tills ni har avgjort. En betalning som är **större** än saldot är alltid en avvikelse, och en återbetalning mot en delbetald faktura likaså.
+**Antagande:** exakt belopp krävs. Allt annat blir avvikelse (delbetalning är en medveten inställning).
 **Alternativ:** (a) behåll (säkrast), (b) tillåt delbetalning som lämnar fakturan delvis betald, (c) tillåt små differenser (öresavrundning) upp till `____` kr.
 **Svar:** `__________`
 
@@ -113,7 +113,8 @@ För varje beslut: **fråga**, varför det spelar roll, **vårt nuvarande antaga
 ### D7. Valuta
 
 **Fråga:** Förekommer utbetalningar eller fakturor i annan valuta än SEK hos kunden?
-**Varför det spelar roll:** vi **avvisar** idag utbetalningar med flera valutor och stödjer inte växling. Behövs det byggs det, och då måste vi veta hur kursdifferenser ska bokföras.
+**Varför det spelar roll:** vi stödjer idag en utbetalning **i en enda valuta** där rader, fakturor och utbetalning har samma valuta. Är den inte SEK bokförs verifikatet på **egna konton för den valutan** (`set-accounts` med valutakod) och märks med valutan, annars skapas inget verifikat (avvikelsen `ACCOUNTS_MISSING`). Vi **avvisar** fortfarande utbetalningar där raderna har en annan valuta än utbetalningen, och vi växlar inte och bokför inga kursdifferenser.
+**Frågor:** (1) Vilka konton används för valutakonto, valutaclearing, avgift och moms i andra valutor? (2) Hur ska verifikat i utländsk valuta anges i affärssystemet (valutakod, kurs, omräknat belopp)? (3) Hur ska kursdifferenser bokföras när en utbetalning i EUR omvandlas till SEK?
 **Svar:** `__________`
 
 ### D8. Perioder, stängda år och spärrar

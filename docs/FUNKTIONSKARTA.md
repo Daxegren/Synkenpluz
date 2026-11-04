@@ -157,7 +157,10 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Onboarding av ny kund | Checklista per kund (`GET /v1/onboarding`): aktiv kund, kontoplan, personlig nyckel, koppling till betalleverantör och affärssystem, testkörning gjord, inga osäkra anrop. Fasen är `setup`, `review` eller `live`. Visas på sidan *Kom igång* i webbgränssnittet | `evaluateOnboarding`, `PAYOUT_PROVIDERS`, `LEDGER_PROVIDERS` i `src/service/onboarding.ts`, `createOnboardingService` i `src/db/onboarding.ts` | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Godkänna go-live | `POST /v1/onboarding/go-live` byter kund från dry_run till live efter att checklistan är klar. Kräver `approvedProposalCount` lika med antalet förslag just nu (annars `stale_review`), så att godkännaren har sett det som bokförs. Lägesbyte och revisionspost `tenant.go_live` skrivs atomiskt, och kundens rad låses så att två godkännanden samtidigt ger ett | `createOnboardingService` (`goLive`) | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Beskriva och testa affärssystemet | `LedgerProvider` anger vad ett affärssystem kan (`LedgerCapabilities`: söka på referens, idempotens, verifiera osäkra utfall, kreditera, verifikat) och har ett skrivskyddat anslutningstest (`POST /v1/onboarding/check-connection`). `describeCapabilities` översätter luckor till konsekvenser för en handläggare. Gör Fortnox, Spiris och Briox utbytbara i checklistan | `LedgerProvider` i `src/ports/ledger.ts`, `describeCapabilities` | `ledgerProviderContract` i `test/contracts/ports.contract.ts` | ✅ (inga riktiga adaptrar än) |
+| Flera valutor | En utbetalning i en annan valuta än SEK bokförs på kundens egna konton för den valutan (`AccountMapping.foreign`), och verifikatet märks med valutan. Saknas konton skapas inget verifikat (`ACCOUNTS_MISSING`) men betalningarna på fakturorna hanteras. Ingen växling och inga kursdifferenser. Före detta bokfördes belopp i en annan valuta tyst på SEK-konton | `reconcile`, `BASE_CURRENCY`, `accountMappingSchema` | `test/currency-partial.test.ts`, golden 10 | ✅ (växling och kursdifferenser saknas) |
+| Delbetalningar | Inställning per kund (`set-option <kund> partial-payments on`, av som standard). En betalning mindre än fakturans saldo registreras som det som betalats, `remaining` anger resten. Större än saldot är alltid en avvikelse | `reconcile`, `setTenantOption`, migration `008_tenant_partial_payments` | `test/currency-partial.test.ts` | ✅ |
 | Roller för API-nycklar | `viewer` läser, `operator` (standard) hanterar även avvikelser, köar om kommandon, avgör osäkra anrop och testar anslutningen, `approver` godkänner även go-live. Rollen kontrolleras i servern före validering av body (`403 forbidden`). Okänd roll i databasen ger `viewer`. Utfärdas med `issue-key <kund> [dagar] [roll]` | `requireRole` i `src/api/server.ts`, `hasRole`, `isApiKeyRole`, `API_KEY_ROLES`, `DEFAULT_API_KEY_ROLE` i `src/security/apiKeys.ts`, migration `007_api_key_role` | `test/roles.test.ts` | ✅ |
+| `test/roles.test.ts` | ✅ |
 | Träffsäkerhet och underlag | `GET /v1/proposals/summary` ger andelen rader som matchats säkert och andelen utbetalningar som blir helt klara, samt avvikelser per kod (bara antal). `GET /v1/proposals/:payoutId/export.csv` ger underlag för redovisningskonsulten: semikolon, decimalkomma, utan interna nycklar, med skydd mot formelinjektion i kalkylprogram. Visas under *Kom igång* och på varje förslag | `summarizeProposals`, `proposalToCsv`, `formatKronor` i `src/service/report.ts` | `test/report.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Granska dry_run-förslag | `GET /v1/proposals`, `GET /v1/proposals/:payoutId` och adminkommandot `list-proposals` (utan belopp) | `buildServer`, `summarizeProposal` | `test/api/extended.test.ts`, `test/retention.test.ts` | ✅ |
 | Gallring (GDPR) | Torrkörning och körning av gallring enligt säkra regler. Rör aldrig öppet, dött, pågående, `audit_log` eller `payout` | `planRetention`, `applyRetention` i `src/db/retention.ts`, adminkommandona `retention-plan`/`retention-apply` | `test/retention.test.ts` | ✅ (körs manuellt) |
@@ -241,7 +244,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | `src/db/gatewayGuard.ts` | Journal över gateway-anrop (Postgres) | `createGatewayGuardStore` (begin, complete, abort, resolve, listInDoubt) |
 | `src/db/metrics.ts` | Mätvärden för drift utan kund-id | `collectMetrics` · `renderPrometheus` |
 | `src/db/retention.ts` | Gallring med säkra regler samt hjälpare för adminkommandon | `planRetention` · `applyRetention` · `resolveRetentionPolicy` · `DEFAULT_RETENTION_POLICY` · `RetentionPolicyError` · `parseRetentionArgs` · `formatRetentionResult` · `formatAge` · `keyFingerprint` · `parseInDoubtDecision` · `summarizeProposal` |
-| `src/db/syncState.ts` | Cursor, kontoplan och kundkonfiguration för synk | `createSyncStateStore`, `setTenantAccounts`, `createTenantConfigProvider`, `listSyncableTenants`, `accountMappingSchema` |
+| `src/db/syncState.ts` | Cursor, kontoplan och kundkonfiguration för synk | `createSyncStateStore`, `setTenantAccounts`, `setTenantOption`, `createTenantConfigProvider`, `listSyncableTenants`, `accountMappingSchema` |
 
 ### `src/security/`: nycklar och kryptering
 
@@ -369,7 +372,7 @@ erDiagram
 | `reconcile_exception` | 001 | Avvikelsekön. Öppen avvikelse unik per (kund, utbetalning, kod, rad) | `createExceptionRepository` |
 | `payout` | 001 | Senaste avstämningsstatus per utbetalning (rejected/partial/complete) | `createPayoutRepository` |
 | `audit_log` | 001, 004 | Append-only revisionslogg | `createAuditLog` |
-| `tenant` | 002, 003 | Kund: status (active/suspended), läge (dry_run/live), kontoplan (jsonb) | `createTenantRepository`, `setTenantAccounts` |
+| `tenant` | 002, 003 | Kund: status (active/suspended), läge (dry_run/live), kontoplan (jsonb), delbetalningar på/av | `createTenantRepository`, `setTenantAccounts`, `setTenantOption` |
 | `api_key` | 002 | HMAC-hash, utgång, återkallning, senast använd | `createApiKeyRepository` |
 | `connection` | 002 | Krypterade uppgifter per (kund, leverantör), status | `createConnectionRepository` |
 | `sync_state` | 003 | Cursor per kund | `createSyncStateStore` |
@@ -377,7 +380,7 @@ erDiagram
 | `dry_run_proposal` | 006 | Senaste dry_run-förslag per utbetalning | `createProposalRepository` |
 | `schema_migrations` | (skapas av `migrate`) | Vilka migrationer som körts | `migrate` |
 
-**Migrationer:** `001_init` (kö, avvikelser, utbetalning, revisionslogg) · `002_tenants_connections` (kunder, nycklar, kopplingar) · `003_sync_state_and_accounts` (cursor, kontoplan) · `004_command_key_per_tenant_and_audit_truncate` (nyckel per kund, skydd mot truncate) · `005_gateway_guard` (journal över gateway-anrop) · `006_dry_run_proposal` (sparade förslag).
+**Migrationer:** `001_init` (kö, avvikelser, utbetalning, revisionslogg) · `002_tenants_connections` (kunder, nycklar, kopplingar) · `003_sync_state_and_accounts` (cursor, kontoplan) · `004_command_key_per_tenant_and_audit_truncate` (nyckel per kund, skydd mot truncate) · `005_gateway_guard` (journal över gateway-anrop) · `006_dry_run_proposal` (sparade förslag) · `007_api_key_role` (roll per nyckel) · `008_tenant_partial_payments` (delbetalningar på/av per kund).
 
 ## 6. Gränssnitt utåt
 
@@ -407,7 +410,7 @@ erDiagram
 
 ### Adminkommandon (`npm run admin -- <kommando>`)
 
-`create-tenant` · `set-accounts` · `set-mode` · `suspend` · `activate` · `issue-key` · `revoke-key` · `set-connection` · `list-tenants` · `retention-plan` · `retention-apply` · `list-in-doubt` · `resolve-in-doubt` · `list-proposals`. `issue-key` tar valfritt antal dagar och roll. Varje åtgärd skriver en revisionspost med `actor: admin-cli`.
+`create-tenant` · `set-accounts` · `set-mode` · `suspend` · `activate` · `issue-key` · `revoke-key` · `set-connection` · `list-tenants` · `retention-plan` · `retention-apply` · `list-in-doubt` · `resolve-in-doubt` · `list-proposals` · `set-option`. `set-accounts` tar valfria konton per valuta. `issue-key` tar valfritt antal dagar och roll. Varje åtgärd skriver en revisionspost med `actor: admin-cli`.
 
 ### npm-skript
 
@@ -431,7 +434,7 @@ erDiagram
 
 ### Revisionsposter (`audit_log.action`)
 
-`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set` · `tenant.go_live` · `guard.resolved` · `retention.applied`. Innehåller aldrig belopp, referenser eller fria anteckningar.
+`payout.processed` · `command.dead` · `exception.resolved` · `command.requeued` · `tenant.created` · `tenant.accounts_set` · `tenant.option_set` · `tenant.mode_set` · `tenant.active` · `tenant.suspended` · `api_key.issued` · `api_key.revoked` · `connection.set` · `tenant.go_live` · `guard.resolved` · `retention.applied`. Innehåller aldrig belopp, referenser eller fria anteckningar.
 
 ## 7. Koder och tillstånd
 
@@ -453,6 +456,7 @@ erDiagram
 | `REFUND_EXCEEDS_INVOICE` | Återbetalning större än kvarvarande krediterbart | rad |
 | `INVALID_INVOICE` | Fakturadata hänger inte ihop (t.ex. moms > total) | rad |
 | `COMMAND_CONFLICT` | En redan köad rad har ändrats hos leverantören | rad (sätts av `processPayout`) |
+| `ACCOUNTS_MISSING` | Utbetalningen är i en valuta som kunden saknar konton för | verifikat (motorn) |
 | `INTERNAL_IMBALANCE` | Verifikatet balanserar inte (ska aldrig hända) | verifikat uteblir |
 
 ### Tillstånd
@@ -498,6 +502,7 @@ Tillståndsdiagram och regler: [ARCHITECTURE.md](ARCHITECTURE.md) avsnitt 4.
 | `test/guarded.test.ts` | Skyddsgatewayen mot ett affärssystem utan idempotens (minne och Postgres-schema) |
 | `test/guard-app.test.ts` | Skyddet genom hela produkten och API:t, inkl. mänskligt avgörande |
 | `test/contracts/ports.contract.ts` | Kontraktssviter för `PayoutSource`, `InvoiceReader`, `LedgerGateway`, `LedgerProvider` |
+| `test/currency-partial.test.ts` | Konton per valuta, att belopp aldrig hamnar på fel valutas konton, delbetalningar och inställningen per kund |
 | `test/roles.test.ts` | Rollerna: ordning, databasen, autentiseringen och varje åtgärd i API:t |
 | `test/report.test.ts` | Träffsäkerhet, CSV-underlag (inkl. formelskydd) och rutterna |
 | `test/onboarding.test.ts` | Onboarding: checklistan, go-live (atomiskt, samtidigt, inaktuell granskning), anslutningstest och API-rutterna |

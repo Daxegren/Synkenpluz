@@ -59,7 +59,7 @@ export async function syncTenant(deps: SyncDeps, tenantId: string): Promise<Sync
       const invoices = await deps.invoices.findByReferences(tenantId, references);
       const outcome = await processPayout(
         { uow: deps.uow, clock: deps.clock },
-        { tenantId, payout, invoices, accounts: config.accounts },
+        { tenantId, payout, invoices, accounts: config.accounts, ...(config.allowPartialPayments ? { allowPartialPayments: true } : {}) },
         { mode: config.mode },
       );
       count(summary, outcome);

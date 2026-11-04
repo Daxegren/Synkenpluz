@@ -1,13 +1,16 @@
 import { allocate, assertMinor, checkedAdd, type Minor } from '../domain/money.js';
-import type {
-  Invoice,
-  LedgerCommand,
-  Payout,
-  PayoutLine,
-  ReconcileException,
-  ReconcileInput,
-  ReconcileResult,
-  VoucherLine,
+import {
+  BASE_CURRENCY,
+  type AccountMapping,
+  type Invoice,
+  type LedgerCommand,
+  type Payout,
+  type PayoutAccounts,
+  type PayoutLine,
+  type ReconcileException,
+  type ReconcileInput,
+  type ReconcileResult,
+  type VoucherLine,
 } from '../domain/types.js';
 
 /**
@@ -59,6 +62,19 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
       exceptions.push(
         lineException('INVOICE_NOT_OPEN', line, `Faktura ${invoice.id} är inte öppen för betalning`),
       );
+    } else if (input.allowPartialPayments === true && line.amount < invoice.balance) {
+      // Delbetalning: bokför bara det som faktiskt betalats. Fakturan förblir öppen med resten.
+      invoice.balance -= line.amount;
+      commands.push({
+        kind: 'register_invoice_payment',
+        key: keyFor(line.id, 'payment'),
+        lineId: line.id,
+        invoiceId: invoice.id,
+        amount: line.amount,
+        currency: line.currency,
+        date: payout.date,
+        remaining: invoice.balance,
+      });
     } else if (line.amount !== invoice.balance) {
       exceptions.push(
         lineException(
@@ -336,7 +352,16 @@ function buildVoucher(
   input: ReconcileInput,
   keyFor: (lineId: string, kind: string) => string,
 ): { command: LedgerCommand | null } | { exception: ReconcileException } {
-  const { payout, accounts } = input;
+  const { payout } = input;
+  const accounts = accountsFor(input.accounts, payout.currency);
+  if (!accounts) {
+    return {
+      exception: {
+        code: 'ACCOUNTS_MISSING',
+        message: `Inga konton är inställda för ${payout.currency}. Inget verifikat skapat: belopp i en valuta bokförs aldrig på konton för en annan`,
+      },
+    };
+  }
 
   let payments = 0;
   let refunds = 0;
@@ -391,8 +416,16 @@ function buildVoucher(
       date: payout.date,
       description: `Utbetalning ${payout.id}`,
       lines,
+      // Bara för andra valutor än SEK, så att verifikat i SEK är oförändrade (och inte krockar med redan köade).
+      ...(payout.currency !== BASE_CURRENCY ? { currency: payout.currency } : {}),
     },
   };
+}
+
+/** Konton för utbetalningens valuta, eller null om kunden inte ställt in några för den. */
+function accountsFor(mapping: AccountMapping, currency: string): PayoutAccounts | null {
+  if (currency === BASE_CURRENCY) return mapping;
+  return mapping.foreign?.[currency] ?? null;
 }
 
 function lineException(

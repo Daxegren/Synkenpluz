@@ -7,6 +7,9 @@ import type { Minor } from './money.js';
 
 export type CurrencyCode = string;
 
+/** Kundens bokföringsvaluta. Utbetalningar i andra valutor kräver egna konton (`AccountMapping.foreign`). */
+export const BASE_CURRENCY: CurrencyCode = 'SEK';
+
 /** ISO-datum, YYYY-MM-DD. */
 export type IsoDate = string;
 
@@ -69,12 +72,21 @@ export interface Invoice {
   status: InvoiceStatus;
 }
 
-/** Kontoplan för bokföring av utbetalningen. Konfigureras per kund. */
-export interface AccountMapping {
+/** De fyra konton en utbetalning bokförs mot. */
+export interface PayoutAccounts {
   bank: number;
   clearing: number;
   feeExpense: number;
   feeVat: number;
+}
+
+/**
+ * Kontoplan för bokföring av utbetalningen. Konfigureras per kund. Huvudkontona gäller utbetalningar i
+ * bokföringsvalutan (SEK). `foreign` ger egna konton per annan valuta, t.ex. { EUR: { ... } }. Saknas konton för en
+ * valuta bokförs inget verifikat (avvikelsen ACCOUNTS_MISSING), så belopp i en valuta aldrig hamnar på konton för en annan.
+ */
+export interface AccountMapping extends PayoutAccounts {
+  foreign?: Record<CurrencyCode, PayoutAccounts>;
 }
 
 export interface VoucherLine {
@@ -92,6 +104,8 @@ export type LedgerCommand =
       amount: Minor;
       currency: CurrencyCode;
       date: IsoDate;
+      /** Finns bara vid en delbetalning: fakturans obetalda belopp efter den här betalningen (större än noll). */
+      remaining?: Minor;
     }
   | {
       kind: 'credit_invoice';
@@ -111,6 +125,8 @@ export type LedgerCommand =
       date: IsoDate;
       description: string;
       lines: VoucherLine[];
+      /** Finns bara när verifikatet inte är i bokföringsvalutan. Saknas den är det SEK. */
+      currency?: CurrencyCode;
     };
 
 export type ExceptionCode =
@@ -128,7 +144,8 @@ export type ExceptionCode =
   | 'INVALID_INVOICE'
   | 'DUPLICATE_INVOICE_ID'
   | 'EMPTY_PAYOUT'
-  | 'COMMAND_CONFLICT';
+  | 'COMMAND_CONFLICT'
+  | 'ACCOUNTS_MISSING';
 
 export interface ReconcileException {
   code: ExceptionCode;
@@ -162,4 +179,10 @@ export interface ReconcileInput {
    * skulle en omkörning se redan betalda fakturor som fel.
    */
   settledLineIds?: ReadonlySet<string>;
+  /**
+   * Registrera en betalning som är mindre än fakturans obetalda belopp som en delbetalning. Av som standard:
+   * då blir det en avvikelse (AMOUNT_MISMATCH) som en människa avgör. Betalningar som är större än saldot
+   * blir alltid en avvikelse.
+   */
+  allowPartialPayments?: boolean;
 }

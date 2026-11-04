@@ -73,6 +73,14 @@ export class FakeLedgerGateway implements LedgerGateway, InvoiceReader {
     switch (command.kind) {
       case 'register_invoice_payment': {
         const invoice = this.require(command.invoiceId);
+        if (command.remaining !== undefined) {
+          // Delbetalning: fakturan förblir öppen med resten.
+          if (invoice.status !== 'open' || command.amount >= invoice.balance || invoice.balance - command.amount !== command.remaining) {
+            throw new LedgerError(`Faktura ${invoice.id} kan inte delbetalas med ${command.amount}`, false, undefined, true);
+          }
+          invoice.balance = command.remaining;
+          break;
+        }
         if (invoice.status !== 'open' || invoice.balance !== command.amount) {
           throw new LedgerError(`Faktura ${invoice.id} kan inte betalas med ${command.amount}`, false, undefined, true);
         }

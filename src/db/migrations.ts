@@ -175,6 +175,13 @@ export const migrations: readonly Migration[] = [
         check (role in ('viewer','operator','approver'));
     `,
   },
+  {
+    id: '008_tenant_partial_payments',
+    sql: `
+      -- Delbetalningar är av som standard: en betalning som inte är lika stor som fakturans saldo blir en avvikelse.
+      alter table tenant add column allow_partial_payments boolean not null default false;
+    `,
+  },
 ];
 
 export async function migrate(db: Db): Promise<string[]> {
