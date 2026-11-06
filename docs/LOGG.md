@@ -164,3 +164,7 @@ Provkörning av en utbetalnings- och en fakturafil utan koppling och utan lagrin
 - **En riktig bugg i gränssnittet.** Ett skript som bytte sida direkt efter inloggning visade fel sida: en långsammare, äldre sida (översikten) skrev över den nya när dess svar kom. Det kunde hända vid snabb navigering. Rättat med en navigeringsräknare, och ett webbläsartest med en fördröjd översikt som **fallerar utan rättningen** och går igenom med den.
 - **Ett missvisande tal.** Ett enda felaktigt belopp gav två rader i problemlistan och rubriken "2 problem". Notisen "utbetalningen utelämnas" fick en egen kod (`PAYOUT_OMITTED`) och räknas inte som ett eget problem.
 - **Tvetydiga format.** `1.234` kan vara tolv komma tre eller ett tusen tvåhundra trettiofyra. Parsern avvisar det i stället för att välja, och dokumentationen säger varför.
+
+## 2026-11-06: dokument åt dig
+
+`docs/UTKAST_PUB.md` (utkast till personuppgiftsbiträdesavtal som stämmer med vad systemet faktiskt lagrar och gör, med öppna frågor till jurist; **inte juridiskt granskat**) och `docs/KUNDGUIDE.md` (utkast till guide för nya kunder: provkörning, koppling, testläge, godkännande, dagligt arbete och vad vi aldrig gör).

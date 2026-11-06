@@ -120,6 +120,8 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | [docs/INDEX.md](docs/INDEX.md) | Index, läsordning och dokumentationsregeln |
 | [docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md) | Funktionskarta med diagram |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Driftsättning: Docker, kontrolllista inför skarp drift, go-live |
+| [docs/KUNDGUIDE.md](docs/KUNDGUIDE.md) | Utkast till guide för nya kunder |
+| [docs/UTKAST_PUB.md](docs/UTKAST_PUB.md) | Utkast till personuppgiftsbiträdesavtal (ej juridiskt granskat) |
 | [docs/PROVKORNING.md](docs/PROVKORNING.md) | Provkörning med filer: träffsäkerhet utan koppling, inget sparas |
 | [docs/KONKURRENTANALYS.md](docs/KONKURRENTANALYS.md) | Synka+ och marknaden, med källor och vad som är verifierat |
 | [docs/BRIOX_DATAKONTRAKT.md](docs/BRIOX_DATAKONTRAKT.md) | Frågor som avgör en Briox-adapter (inget verifierat än) |

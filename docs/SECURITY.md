@@ -101,7 +101,7 @@ Domänmodellen innehåller inga kundnamn, adresser, e-post eller kortuppgifter. 
 Kryssa av när det är gjort. Allt nedan är i nuläget öppet om inget annat anges.
 
 - [ ] **Roller fastställda.** Kunden (e-handlaren) är personuppgiftsansvarig, tjänsten är personuppgiftsbiträde. Bekräfta med juridisk rådgivning.
-- [ ] **Personuppgiftsbiträdesavtal (PUB)** tecknat med varje kund före första produktionsdata.
+- [ ] **Personuppgiftsbiträdesavtal (PUB)** tecknat med varje kund före första produktionsdata. Ett utkast som stämmer med systemet finns i [UTKAST_PUB.md](UTKAST_PUB.md) (inte juridiskt granskat).
 - [ ] **Underbiträden** förtecknade och kunderna informerade (hosting, databas, e-post, övervakning). Gäller även Fortnox/leverantören där de är biträden.
 - [ ] **Dataminimering.** Spara bara det avstämning kräver. Modellen är minimal (3.7). Kontrollera varje ny adapter så att den inte lagrar kundnamn eller kortdata. `AuditEntry.details` och feltexter ska hållas fria från personuppgifter (kontroll saknas i kod).
 - [ ] **Gallring/lagringstid.** Beslut om hur länge `ledger_command`, `reconcile_exception`, `payout` och `audit_log` sparas. Bokföringslagen kräver att räkenskapsinformation sparas länge (normalt sju år), så radering måste vägas mot den. Revisionsloggen är oföränderlig med avsikt och innehåller därför inte personuppgifter. Gallring är implementerad (`src/db/retention.ts`) men körs manuellt och standardvärdena (400 dagar, minst 30) är inte avstämda med en redovisningskonsult. Den raderar bara kommandon för en helt klar och gammal utbetalning, aldrig öppna eller döda poster, och aldrig `audit_log` eller `payout`-raderna.

@@ -25,6 +25,8 @@ De här tre är skrivna för att lämnas till någon annan och besvaras. De är 
 | Dokument | Till | Innehåll |
 | --- | --- | --- |
 | [BRIOX_DATAKONTRAKT.md](BRIOX_DATAKONTRAKT.md) | Den som har Briox dokumentation | 14 oförifierade frågor som avgör en Briox-adapter. Ingenting är bekräftat än |
+| [KUNDGUIDE.md](KUNDGUIDE.md) | Nya kunder (e-handlare) | Utkast att skicka: hur man kommer igång, vad som händer, vad kunden bestämmer och vad vi aldrig gör |
+| [UTKAST_PUB.md](UTKAST_PUB.md) | Jurist | Utkast till personuppgiftsbiträdesavtal som stämmer med vad systemet gör, med öppna frågor. **Inte juridiskt granskat** |
 | [PROVKORNING.md](PROVKORNING.md) | Handläggare, säljare | Provkörning med två filer (utbetalning och faktura): format, regler, problemkoder, webb, terminal och API. Ingen koppling behövs och inget sparas |
 | [KONKURRENTANALYS.md](KONKURRENTANALYS.md) | Beslutsfattare | Synka+ och övriga aktörer med källor, att Mondido redan har en Fortnox-koppling, Fortnox API-fakta och var vi kan bli bättre. Märkt vad som är verifierat och vad som är hypotes |
 | [MONDIDO_DATAKONTRAKT.md](MONDIDO_DATAKONTRAKT.md) | Mondidos utvecklare | Exakt vilka data vi behöver från Mondidos utbetalningar, formatkrav, 15 frågor och testdata som önskas |
