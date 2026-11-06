@@ -16,6 +16,9 @@ export function describeCommand(command: Record<string, unknown>): {
 };
 export function voucherBalance(lines: Array<{ debit: number; credit: number }>): { debit: number; credit: number; balanced: boolean };
 export const PAGES: string[];
+export const PREVIEW_MAX_FILE_BYTES: number;
+export function validatePreviewFiles(input: { payouts?: { size: number } | null | undefined; invoices?: { size: number } | null | undefined }): string | null;
+export function parseMappingJson(text: string | undefined, what: string): { value?: Record<string, unknown> | undefined; error?: string };
 export function parseHash(hash: string): { page: string; id: string | null };
 export function apiErrorMessage(status: number, body: unknown, retryAfterSec?: number): string;
 export function validateResolve(input: { status?: string | undefined; note?: string | undefined }): string | null;

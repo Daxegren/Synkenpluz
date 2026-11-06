@@ -345,6 +345,82 @@ describe.skipIf(!pw)('webbgränssnitt i webbläsare', () => {
     await context.close();
   }, 120_000);
 
+  it('en långsam sida skriver aldrig över en nyare: snabb navigering visar den sida man valde sist', async () => {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, locale: 'sv-SE' });
+    const page = await context.newPage();
+    // Översiktens första anrop görs långsamt, så att det svarar först efter att användaren gått vidare.
+    await page.route('**/v1/payouts**', async (route: Any) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.continue();
+    });
+    await page.goto(`${base}/app`);
+    await page.getByLabel('API-nyckel').fill(rawKey);
+    await page.getByRole('button', { name: 'Logga in' }).click();
+    await visible(page.getByRole('navigation', { name: 'Huvudmeny' }));
+    await page.getByRole('link', { name: 'Provkör med filer' }).click();
+    await visible(page.getByRole('heading', { name: 'Provkör med filer' }));
+    await page.waitForTimeout(2500); // längre än fördröjningen
+    expect(await page.getByRole('heading', { name: 'Provkör med filer' }).count()).toBe(1);
+    expect(await page.getByRole('heading', { name: 'Översikt' }).count()).toBe(0);
+    await context.close();
+  }, 120_000);
+
+  it('provkörning med filer: ladda upp, se träffsäkerhet och problem, utan att något sparas', async () => {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 1000 }, locale: 'sv-SE' });
+    const page = await context.newPage();
+    const problems: string[] = [];
+    page.on('pageerror', (e: Any) => problems.push(`pageerror: ${e.message}`));
+    page.on('dialog', async (d: Any) => {
+      problems.push(`oväntad alert/prompt: ${d.message()}`);
+      await d.dismiss();
+    });
+    await page.goto(`${base}/app`);
+    await page.getByLabel('API-nyckel').fill(rawKey);
+    await page.getByRole('button', { name: 'Logga in' }).click();
+    await visible(page.getByRole('navigation', { name: 'Huvudmeny' }));
+    await page.getByRole('link', { name: 'Provkör med filer' }).click();
+    await visible(page.getByRole('heading', { name: 'Provkör med filer' }));
+
+    // Utan filer går det inte att köra.
+    await page.getByRole('button', { name: 'Provkör', exact: true }).click();
+    await visible(page.getByRole('alert').filter({ hasText: 'Välj en utbetalningsfil' }));
+
+    const payouts = [
+      'payout_id;payout_date;payout_net;currency;line_id;type;reference;amount;fee_net;fee_vat',
+      'U1;2026-11-04;250,00;SEK;L1;payment;ORDER-A;125,00;;',
+      'U1;2026-11-04;250,00;SEK;L2;payment;ORDER-B;125,00;;',
+      'U2;2026-11-05;100,00;SEK;L1;payment;ORDER-SAKNAS;100,00;;',
+      'U3;2026-11-05;50,00;SEK;L1;payment;ORDER-A;1.234;;',
+    ].join('\n');
+    const invoices = [
+      'invoice_id;reference;currency;total;vat_total;balance',
+      'A;ORDER-A;SEK;125,00;25,00;125,00',
+      'B;ORDER-B;SEK;125,00;25,00;125,00',
+    ].join('\n');
+    await page.locator('#payouts-file').setInputFiles({ name: 'utbetalningar.csv', mimeType: 'text/csv', buffer: Buffer.from(payouts) });
+    await page.locator('#invoices-file').setInputFiles({ name: 'fakturor.csv', mimeType: 'text/csv', buffer: Buffer.from(invoices) });
+
+    // En trasig mappning stoppas innan något skickas.
+    await page.getByText('Avancerat', { exact: false }).click();
+    await page.getByLabel('Mappning för utbetalningsfilen').fill('{ trasig');
+    await page.getByRole('button', { name: 'Provkör', exact: true }).click();
+    await visible(page.getByRole('alert').filter({ hasText: 'inte giltig JSON' }));
+    await page.getByLabel('Mappning för utbetalningsfilen').fill('');
+
+    await page.getByRole('button', { name: 'Provkör', exact: true }).click();
+    await visible(page.getByRole('heading', { name: 'Träffsäkerhet i testläge' }));
+    await visible(page.getByText('av raderna matchades säkert mot en faktura (2 av 3)', { exact: false }));
+    await visible(page.getByText('1 problem i filerna', { exact: false })); // 1.234 är tvetydigt och läses inte
+    await visible(page.getByRole('heading', { name: 'Per utbetalning' }));
+    expect(await page.locator('main').innerText()).not.toMatch(/\bnull\b|\[object |\bundefined\b|\bNaN\b/);
+    await shot(page, '10-provkorning');
+
+    // Inget sparades hos kunden.
+    expect((await app.repos.proposals.list('T1')).some((p) => p.payoutId === 'U1')).toBe(false);
+    expect(problems).toEqual([]);
+    await context.close();
+  }, 120_000);
+
   it('fungerar på mobil bredd utan horisontell scroll och går att använda med tangentbordet', async () => {
     const context = await browser.newContext({ viewport: { width: 375, height: 800 }, locale: 'sv-SE' });
     const page = await context.newPage();

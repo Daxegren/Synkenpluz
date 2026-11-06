@@ -158,10 +158,12 @@ Streckade rutor är externa system som **inte är anslutna ännu**. En färdigre
 | Godkänna go-live | `POST /v1/onboarding/go-live` byter kund från dry_run till live efter att checklistan är klar. Kräver `approvedProposalCount` lika med antalet förslag just nu (annars `stale_review`), så att godkännaren har sett det som bokförs. Lägesbyte och revisionspost `tenant.go_live` skrivs atomiskt, och kundens rad låses så att två godkännanden samtidigt ger ett | `createOnboardingService` (`goLive`) | `test/onboarding.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Beskriva och testa affärssystemet | `LedgerProvider` anger vad ett affärssystem kan (`LedgerCapabilities`: söka på referens, idempotens, verifiera osäkra utfall, kreditera, verifikat) och har ett skrivskyddat anslutningstest (`POST /v1/onboarding/check-connection`). `describeCapabilities` översätter luckor till konsekvenser för en handläggare. Gör Fortnox, Spiris och Briox utbytbara i checklistan | `LedgerProvider` i `src/ports/ledger.ts`, `describeCapabilities` | `ledgerProviderContract` i `test/contracts/ports.contract.ts` | ✅ (inga riktiga adaptrar än) |
 | Flera valutor | En utbetalning i en annan valuta än SEK bokförs på kundens egna konton för den valutan (`AccountMapping.foreign`), och verifikatet märks med valutan. Saknas konton skapas inget verifikat (`ACCOUNTS_MISSING`) men betalningarna på fakturorna hanteras. Ingen växling och inga kursdifferenser. Före detta bokfördes belopp i en annan valuta tyst på SEK-konton | `reconcile`, `BASE_CURRENCY`, `accountMappingSchema` | `test/currency-partial.test.ts`, golden 10 | ✅ (växling och kursdifferenser saknas) |
-| Delbetalningar | Inställning per kund (`set-option <kund> partial-payments on`, av som standard). En betalning mindre än fakturans saldo registreras som det som betalats, `remaining` anger resten. Större än saldot är alltid en avvikelse | `reconcile`, `setTenantOption`, migration `008_tenant_partial_payments` | `test/chaos.test.ts` | **Slumpmässigt systemprov av kärnlöftet** (sex fasta frön): ett affärssystem utan egen idempotens svarar slumpmässigt (avvisar, utför och tappar svaret, okända fel), arbetare kraschar, utbetalningar körs om i slumpad ordning, klockan hoppar och en människa avgör osäkra anrop och köar om döda. Bevisar att inget kommando utförs mer än en gång och att allt blir klart exakt en gång. Utan skyddsgatewayen dubbelbokförs det i alla frön |
+| Delbetalningar | Inställning per kund (`set-option <kund> partial-payments on`, av som standard). En betalning mindre än fakturans saldo registreras som det som betalats, `remaining` anger resten. Större än saldot är alltid en avvikelse | `reconcile`, `setTenantOption`, migration `008_tenant_partial_payments` | `test/import.test.ts` | CSV-läsning, belopp, datum, utbetalnings- och fakturafiler (varje problemkod), provkörningen, API-rutten och terminalverktyget |
+| `test/chaos.test.ts` | **Slumpmässigt systemprov av kärnlöftet** (sex fasta frön): ett affärssystem utan egen idempotens svarar slumpmässigt (avvisar, utför och tappar svaret, okända fel), arbetare kraschar, utbetalningar körs om i slumpad ordning, klockan hoppar och en människa avgör osäkra anrop och köar om döda. Bevisar att inget kommando utförs mer än en gång och att allt blir klart exakt en gång. Utan skyddsgatewayen dubbelbokförs det i alla frön |
 | `test/pagination.test.ts` | Sidindelning i SQL av förslag och osäkra anrop (PGlite, minne och fakeGuard mot samma krav), begränsad sammanställning, och att Fortnox-förinställningen aldrig ger fler än 25 anrop per 5 sekunder |
 | `test/demo.test.ts` | Demodatan: rätt roller, förslag av alla slag, EUR och delkreditering, livekundens avvikelse och osäkra anrop, att godkännaren kan gå live och läsaren inte |
 | `test/currency-partial.test.ts` | ✅ |
+| Provkörning med filer | Två CSV-filer (utbetalning och faktura) ger träffsäkerhet, avvikelser och problem i filerna, utan koppling och utan att något sparas. Strikt tolkning: tvetydiga belopp, datum, kolumner och rader avvisas, en utbetalning läses helt eller inte alls, och nettobeloppet krävs. Sidan *Provkör med filer*, `npm run preview` och `POST /v1/preview` | `parseCsv`, `parseAmount`, `parseDate`, `parsePayoutCsv`, `parseInvoiceCsv`, `previewReconciliation`, `scripts/preview.ts` | `test/import.test.ts`, `test/web.e2e.test.ts` | ✅ |
 | Roller för API-nycklar | `viewer` läser, `operator` (standard) hanterar även avvikelser, köar om kommandon, avgör osäkra anrop och testar anslutningen, `approver` godkänner även go-live. Rollen kontrolleras i servern före validering av body (`403 forbidden`). Okänd roll i databasen ger `viewer`. Utfärdas med `issue-key <kund> [dagar] [roll]` | `requireRole` i `src/api/server.ts`, `hasRole`, `isApiKeyRole`, `API_KEY_ROLES`, `DEFAULT_API_KEY_ROLE` i `src/security/apiKeys.ts`, migration `007_api_key_role` | `test/roles.test.ts` | ✅ |
 | `test/roles.test.ts` | ✅ |
 | Träffsäkerhet och underlag | `GET /v1/proposals/summary` ger andelen rader som matchats säkert och andelen utbetalningar som blir helt klara, samt avvikelser per kod (bara antal). `GET /v1/proposals/:payoutId/export.csv` ger underlag för redovisningskonsulten: semikolon, decimalkomma, utan interna nycklar, med skydd mot formelinjektion i kalkylprogram. Visas under *Kom igång* och på varje förslag | `summarizeProposals`, `proposalToCsv`, `formatKronor` i `src/service/report.ts` | `test/report.test.ts`, `test/web.e2e.test.ts` | ✅ |
@@ -225,6 +227,11 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- | --- |
 | `src/service/processPayout.ts` | Avstäm en utbetalning och spara atomiskt | `processPayout` · *withConflicts, canonical, summarize* |
 | `src/service/syncTenant.ts` | Hämta nya + återuppta delvis/avvisade för en kund | `syncTenant` · *count* |
+| `src/import/csv.ts` | CSV-läsning (RFC 4180, BOM, citerade fält), avgörande av avgränsare, gränser | `parseCsv` · `detectDelimiter` · `CsvError` · konstanten `CSV_LIMITS` |
+| `src/import/amount.ts` | Belopp och datum ur filer, utan gissning | `parseAmount` · `parseDate` |
+| `src/import/payouts.ts` | Utbetalningsfil till `Payout`, med mappning av egna kolumner och värden | `parsePayoutCsv` · `DEFAULT_PAYOUT_COLUMNS` · `DEFAULT_TYPE_VALUES` |
+| `src/import/invoices.ts` | Fakturafil till `Invoice` | `parseInvoiceCsv` · `DEFAULT_INVOICE_COLUMNS` · `DEFAULT_STATUS_VALUES` |
+| `src/service/preview.ts` | Provkörning utan databas: avstämning av filer i ordning, med fakturornas tillstånd framräknat mellan utbetalningarna | `previewReconciliation` · `EXAMPLE_ACCOUNTS` |
 | `src/service/report.ts` | Träffsäkerhet och CSV-underlag ur sparade förslag (rena funktioner) | `summarizeProposals` · `proposalToCsv` · `formatKronor` · *safeText, cell, row* |
 | `src/service/onboarding.ts` | Vad som återstår innan en kund kan gå live (rena funktioner) | `evaluateOnboarding` · `describeCapabilities` · konstanterna `PAYOUT_PROVIDERS`, `LEDGER_PROVIDERS` |
 
@@ -313,6 +320,7 @@ Läs den som en innehållsförteckning. Interna hjälpfunktioner (ej exporterade
 | --- | --- |
 | `scripts/admin.ts` | Adminverktyg (kommandon i avsnitt 6) |
 | `scripts/demo.ts` | Berättande demo med simulerade system |
+| `scripts/preview.ts` | Provkörning av två filer från terminalen (`npm run preview`) |
 | `scripts/demo-web.ts` | Startar webbgränssnittet med exempeldata (se `src/demo/seed.ts`) |
 | `scripts/pg-test.sh` | Startar temporär riktig Postgres och kör `test/pg` (eller `PG_RUN_CMD`) |
 | `scripts/smoke.sh` | Startar `pg-test.sh` med rökprovet |
@@ -405,6 +413,7 @@ erDiagram
 | `GET /v1/proposals/summary` | Träffsäkerhet över alla sparade förslag (bara antal) |
 | `GET /v1/proposals/:payoutId/export.csv` | Underlag som CSV för redovisningskonsulten |
 | `GET /v1/proposals/:payoutId` | Ett förslag med kommandon och avvikelser |
+| `POST /v1/preview` | Provkörning med två filer. Ingenting sparas. Kräver `operator` |
 | `GET /v1/onboarding` | Checklista och fas för kunden, plus affärssystemets förmågor om en leverantör är kopplad |
 | `POST /v1/onboarding/go-live` | Godkänn att kunden går live (`approvedProposalCount`). Loggas |
 | `POST /v1/onboarding/check-connection` | Skrivskyddat test av anslutningen till affärssystemet |
@@ -428,6 +437,7 @@ erDiagram
 | `npm run test:pg` | Tester mot temporär riktig Postgres |
 | `npm run smoke` | Rökprov av hela tjänsten |
 | `npm run demo` | Berättande demo |
+| `npm run preview` | Provkörning av en utbetalnings- och en fakturafil, inget sparas |
 | `npm run demo:web` | Webbgränssnittet med exempeldata på `http://127.0.0.1:3000/app`, skriver ut nycklar |
 | `npm run admin` | Adminverktyget |
 | `npm run build` | Kompilerar till JavaScript (`dist/`) med `tsconfig.build.json` |

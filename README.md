@@ -120,6 +120,7 @@ Detaljer: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | [docs/INDEX.md](docs/INDEX.md) | Index, läsordning och dokumentationsregeln |
 | [docs/FUNKTIONSKARTA.md](docs/FUNKTIONSKARTA.md) | Funktionskarta med diagram |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Driftsättning: Docker, kontrolllista inför skarp drift, go-live |
+| [docs/PROVKORNING.md](docs/PROVKORNING.md) | Provkörning med filer: träffsäkerhet utan koppling, inget sparas |
 | [docs/KONKURRENTANALYS.md](docs/KONKURRENTANALYS.md) | Synka+ och marknaden, med källor och vad som är verifierat |
 | [docs/BRIOX_DATAKONTRAKT.md](docs/BRIOX_DATAKONTRAKT.md) | Frågor som avgör en Briox-adapter (inget verifierat än) |
 | [docs/MONDIDO_DATAKONTRAKT.md](docs/MONDIDO_DATAKONTRAKT.md) | Underlag till Mondidos utvecklare: vilka data vi behöver |
@@ -157,6 +158,7 @@ npm install
 npm run check    # typkontroll och tester (PGlite, ingen databas behövs)
 npm run demo     # berättande genomkörning av hela flödet med simulerade system
 npm run demo:web # webbgränssnittet med färdig exempeldata (två påhittade kunder), för att visa upp det
+npm run preview -- docs/exempel/utbetalningar.csv docs/exempel/fakturor.csv   # provkörning med filer, inget sparas
 npm run test:pg  # tester mot en temporär riktig Postgres (kräver Postgres 16-binärer)
 npm run smoke    # rökprov: temporär Postgres, admin-verktyg, server, API, nedstängning
 npm run build    # kompilera till dist/  (SMOKE_PROD=1 npm run smoke provar det kompilerade bygget)

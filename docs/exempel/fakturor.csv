@@ -1,0 +1,4 @@
+invoice_id;reference;currency;total;vat_total;balance;credited_total;credited_vat_total;status
+1001;ORDER-1001;SEK;149,00;29,80;149,00;;;open
+1002;ORDER-1002;SEK;139,00;27,80;139,00;;;open
+1003;ORDER-1003;SEK;100,00;20,00;100,00;;;open

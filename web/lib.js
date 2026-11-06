@@ -182,7 +182,34 @@ export function voucherBalance(lines) {
   return { debit, credit, balanced: debit === credit };
 }
 
-export const PAGES = ['oversikt', 'start', 'forslag', 'utbetalningar', 'avvikelser', 'osakra'];
+export const PAGES = ['oversikt', 'start', 'prov', 'forslag', 'utbetalningar', 'avvikelser', 'osakra'];
+
+/** Största tillåtna fil i provkörningen, samma gräns som servern (CSV_LIMITS.maxBytes). */
+export const PREVIEW_MAX_FILE_BYTES = 5_000_000;
+
+/** Kontroll före uppladdning: båda filerna måste finnas och rymmas. Returnerar en förklaring eller null. */
+export function validatePreviewFiles({ payouts, invoices }) {
+  if (!payouts) return 'Välj en utbetalningsfil.';
+  if (!invoices) return 'Välj en fakturafil.';
+  for (const [name, file] of [['Utbetalningsfilen', payouts], ['Fakturafilen', invoices]]) {
+    if (file.size === 0) return `${name} är tom.`;
+    if (file.size > PREVIEW_MAX_FILE_BYTES) return `${name} är för stor (högst ${PREVIEW_MAX_FILE_BYTES / 1_000_000} MB).`;
+  }
+  return null;
+}
+
+/** Läser en valfri mappning skriven som JSON. Tom text betyder ingen mappning. Returnerar { value } eller { error }. */
+export function parseMappingJson(text, what) {
+  const trimmed = String(text ?? '').trim();
+  if (trimmed === '') return { value: undefined };
+  try {
+    const value = JSON.parse(trimmed);
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return { error: `Mappningen för ${what} måste vara ett JSON-objekt.` };
+    return { value };
+  } catch {
+    return { error: `Mappningen för ${what} är inte giltig JSON.` };
+  }
+}
 
 /** "#/forslag/UTB-1" -> { page: 'forslag', id: 'UTB-1' }. Okända sidor blir översikten. */
 export function parseHash(hash) {

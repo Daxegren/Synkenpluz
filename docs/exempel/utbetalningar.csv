@@ -1,0 +1,7 @@
+payout_id;payout_date;payout_net;currency;line_id;type;reference;amount;fee_net;fee_vat
+UTB-1;2026-11-04;283,00;SEK;T1;payment;ORDER-1001;149,00;2,40;0,60
+UTB-1;2026-11-04;283,00;SEK;T2;payment;ORDER-1002;139,00;1,60;0,40
+UTB-2;2026-11-05;74,00;SEK;T3;payment;ORDER-1003;100,00;;
+UTB-2;2026-11-05;74,00;SEK;T4;refund;ORDER-1001;-25,00;;
+UTB-2;2026-11-05;74,00;SEK;T5;fee;;;0,80;0,20
+UTB-3;2026-11-06;59,00;SEK;T6;payment;ORDER-9999;60,00;0,80;0,20

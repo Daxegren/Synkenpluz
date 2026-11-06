@@ -14,6 +14,7 @@
     "admin": "node --import tsx scripts/admin.ts",
     "demo": "node --import tsx scripts/demo.ts",
     "demo:web": "node --import tsx scripts/demo-web.ts",
+    "preview": "node --import tsx scripts/preview.ts",
     "smoke": "bash scripts/smoke.sh",
     "test:pg": "bash scripts/pg-test.sh",
     "build": "tsc -p tsconfig.build.json",

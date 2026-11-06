@@ -14,6 +14,8 @@ Status: tidigt skede, inget i drift. Dokumentet skiljer på **implementerat** (f
 | **Path traversal** vid filservering | Fyra allowlistade filer, ingen sökvägsparameter | |
 | **Mänskliga misstag** (stänga fel avvikelse, avgöra fel osäkert anrop) | Bekräftelsedialoger med varningstext, krav på anteckning, allt revisionsloggas med nyckel-id | Ett felaktigt avgörande av ett osäkert anrop kan ge dubbelbokning eller utebliven bokföring. Det går inte att ångra härifrån |
 
+**Provkörning med filer** (`POST /v1/preview`) tar emot kunduppgifter och belopp i förfrågan. De räknas på och sparas aldrig: ingen databas anropas, inget loggas och ingen revisionspost skrivs. Filerna är begränsade (5 MB, 50 000 rader, 60 kolumner) och tolkas strikt. Det som är tvetydigt avvisas i stället för att gissas. Beräkningen sker synkront i servern, så en mycket stor fil upptar en förfrågan en stund; hastighetsbegränsningen per nyckel gäller. Rollen `operator` krävs.
+
 **Roller:** varje nyckel har en roll. `viewer` läser, `operator` (standard) hanterar även avvikelser, köar om kommandon, avgör osäkra anrop och testar anslutningen, `approver` godkänner även att kunden går live. Servern kontrollerar rollen före validering av body, så en läsare får ingen information om formatet. En okänd roll i databasen behandlas som `viewer`. Befintliga nycklar blev `operator` vid migrationen (007), alltså utan rätt att godkänna go-live.
 
 **Begränsning:** det finns fortfarande inga användarkonton eller SSO: en roll hör till en nyckel, inte till en person. Det finns ingen tvåpersonsregel (samma person kan granska och godkänna). Utfärda en nyckel per person med utgångsdatum så att åtkomst kan spåras och återkallas individuellt.

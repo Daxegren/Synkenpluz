@@ -12,6 +12,9 @@ import {
   formatAmount,
   parseHash,
   ONBOARDING_PHASE,
+  PREVIEW_MAX_FILE_BYTES,
+  parseMappingJson,
+  validatePreviewFiles,
   ROLE_LABEL,
   formatPercent,
   validateGoLive,
@@ -214,7 +217,7 @@ describe('gränssnittets logik (web/lib.js)', () => {
     expect(parseHash('#/utbetalningar/a%2Fb')).toEqual({ page: 'utbetalningar', id: 'a/b' });
     expect(parseHash('#/finns-inte/x')).toEqual({ page: 'oversikt', id: null });
     expect(parseHash('#/forslag/%E0%A4%A')).toEqual({ page: 'forslag', id: null }); // trasig kodning kraschar inte
-    expect(PAGES).toEqual(['oversikt', 'start', 'forslag', 'utbetalningar', 'avvikelser', 'osakra']);
+    expect(PAGES).toEqual(['oversikt', 'start', 'prov', 'forslag', 'utbetalningar', 'avvikelser', 'osakra']);
   });
 
   it('ger begripliga felmeddelanden och läcker inget oväntat', () => {
@@ -232,6 +235,22 @@ describe('gränssnittets logik (web/lib.js)', () => {
     expect(validateGoLive({ reviewed: true })).toBeNull();
     expect(validateGoLive({ reviewed: false })).toContain('granskat');
     expect(validateGoLive({})).toContain('granskat');
+  });
+
+  it('kontrollerar filerna före uppladdning till provkörningen', () => {
+    expect(validatePreviewFiles({ payouts: { size: 10 }, invoices: { size: 10 } })).toBeNull();
+    expect(validatePreviewFiles({ payouts: null, invoices: { size: 10 } })).toContain('utbetalningsfil');
+    expect(validatePreviewFiles({ payouts: { size: 10 }, invoices: undefined })).toContain('fakturafil');
+    expect(validatePreviewFiles({ payouts: { size: 0 }, invoices: { size: 10 } })).toContain('tom');
+    expect(validatePreviewFiles({ payouts: { size: 10 }, invoices: { size: PREVIEW_MAX_FILE_BYTES + 1 } })).toContain('för stor');
+    expect(validatePreviewFiles({ payouts: { size: PREVIEW_MAX_FILE_BYTES }, invoices: { size: 1 } })).toBeNull();
+  });
+
+  it('läser en valfri mappning som JSON och avvisar allt som inte är ett objekt', () => {
+    expect(parseMappingJson('', 'x')).toEqual({ value: undefined });
+    expect(parseMappingJson('   ', 'x')).toEqual({ value: undefined });
+    expect(parseMappingJson('{"dateFormat":"dmy"}', 'x')).toEqual({ value: { dateFormat: 'dmy' } });
+    for (const bad of ['{', '[]', '3', 'null', '"text"']) expect(parseMappingJson(bad, 'utbetalningsfilen').error).toContain('utbetalningsfilen');
   });
 
   it('formaterar andelar och namnger rollerna', () => {

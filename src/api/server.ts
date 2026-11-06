@@ -3,6 +3,11 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, ty
 import { z } from 'zod';
 import type { OnboardingService } from '../db/onboarding.js';
 import { hasRole, type ApiKeyRole } from '../security/apiKeys.js';
+import { accountMappingSchema } from '../db/syncState.js';
+import type { AccountMapping } from '../domain/types.js';
+import { DEFAULT_INVOICE_COLUMNS, parseInvoiceCsv, type InvoiceCsvMapping } from '../import/invoices.js';
+import { DEFAULT_PAYOUT_COLUMNS, parsePayoutCsv, type PayoutCsvMapping } from '../import/payouts.js';
+import { previewReconciliation } from '../service/preview.js';
 import { proposalToCsv, summarizeProposals } from '../service/report.js';
 import { registerWebUi } from '../web/serve.js';
 import type {
@@ -85,6 +90,10 @@ const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 500;
 const MAX_PAGE_OFFSET = 1_000_000;
 const READY_TIMEOUT_MS = 3000;
+/** Provkörningen tar emot två filer i JSON. Varje fil högst så här många tecken (CSV_LIMITS.maxBytes), och kroppen får vara dubbelt så stor plus marginal för JSON-citering. */
+const PREVIEW_MAX_CHARS = 5_000_000;
+const PREVIEW_BODY_LIMIT = 24_000_000;
+const PREVIEW_MAX_REPORTED = 200;
 /** Sammanställningen av förslag läser högst så här många. Fler visas som `truncated: true`. */
 const SUMMARY_MAX_PROPOSALS = 5000;
 
@@ -151,6 +160,40 @@ const guardResolveBody = z
     }
   });
 const goLiveBody = z.strictObject({ approvedProposalCount: z.number().int().min(0).max(1_000_000) });
+const columnShape = (names: Record<string, string>) =>
+  z.strictObject(Object.fromEntries(Object.keys(names).map((k) => [k, z.string().trim().min(1).max(100).optional()])));
+const valueList = z.array(z.string().trim().min(1).max(50)).min(1).max(20);
+const delimiterSchema = z.enum([';', ',', '\t']);
+const previewBody = z.strictObject({
+  payoutsCsv: z.string().min(1).max(PREVIEW_MAX_CHARS),
+  invoicesCsv: z.string().min(1).max(PREVIEW_MAX_CHARS),
+  payoutsMapping: z
+    .strictObject({
+      columns: columnShape(DEFAULT_PAYOUT_COLUMNS).optional(),
+      delimiter: delimiterSchema.optional(),
+      dateFormat: z.enum(['iso', 'dmy']).optional(),
+      amountsInMinorUnits: z.boolean().optional(),
+      typeValues: z.strictObject({ payment: valueList.optional(), refund: valueList.optional(), fee: valueList.optional() }).optional(),
+    })
+    .optional(),
+  invoicesMapping: z
+    .strictObject({
+      columns: columnShape(DEFAULT_INVOICE_COLUMNS).optional(),
+      delimiter: delimiterSchema.optional(),
+      amountsInMinorUnits: z.boolean().optional(),
+      statusValues: z.strictObject({ open: valueList.optional(), paid: valueList.optional(), cancelled: valueList.optional() }).optional(),
+    })
+    .optional(),
+  accounts: accountMappingSchema.optional(),
+  allowPartialPayments: z.boolean().optional(),
+});
+
+/** Tar bort nycklar vars värde är undefined (zod ger `undefined` för utelämnade valfria fält, som exactOptionalPropertyTypes inte tillåter). */
+function compact<T extends object>(value: T | undefined): T {
+  if (!value) return {} as T;
+  return Object.fromEntries(Object.entries(value).flatMap(([k, v]) => (v === undefined ? [] : [[k, v && typeof v === 'object' && !Array.isArray(v) ? compact(v) : v]]))) as T;
+}
+
 const resolveBody = z.strictObject({
   status: z.enum(['resolved', 'dismissed']),
   note: z.string().trim().min(1, 'note får inte vara tom').max(2000, 'note får vara högst 2000 tecken'),
@@ -498,6 +541,33 @@ export function buildServer(deps: ApiDeps): FastifyInstance {
         return presentProposal(p);
       });
     }
+
+    // Provkörning med filer: ingenting sparas, ingen databas anropas och ingen koppling behövs. Allt som visas kommer
+    // från filerna kunden själv lämnat.
+    v1.post('/preview', { bodyLimit: PREVIEW_BODY_LIMIT }, async (request) => {
+      requireRole(request, 'operator');
+      const body = parse(previewBody, request.body, 'body');
+      const payouts = parsePayoutCsv(body.payoutsCsv, compact(body.payoutsMapping) as PayoutCsvMapping);
+      const invoices = parseInvoiceCsv(body.invoicesCsv, compact(body.invoicesMapping) as InvoiceCsvMapping);
+      const accounts = body.accounts ? (compact(body.accounts) as AccountMapping) : undefined;
+      const preview = previewReconciliation({
+        payouts: payouts.payouts,
+        invoices: invoices.invoices,
+        ...(accounts ? { accounts } : {}),
+        ...(body.allowPartialPayments ? { allowPartialPayments: true } : {}),
+      });
+      const report = (parsed: { rows: number; problems: unknown[] }, accepted: number) => ({
+        rows: parsed.rows,
+        accepted,
+        problems: parsed.problems.slice(0, PREVIEW_MAX_REPORTED),
+        problemsTruncated: parsed.problems.length > PREVIEW_MAX_REPORTED,
+      });
+      return {
+        summary: preview.summary,
+        payouts: preview.payouts,
+        files: { payouts: report(payouts, payouts.payouts.length), invoices: report(invoices, invoices.invoices.length) },
+      };
+    });
 
     const onboarding = deps.onboarding;
     if (onboarding) {

@@ -190,3 +190,13 @@ Kort logg över arkitekturbeslut hittills. Status anges per beslut. Nytt beslut 
 - *Delad hastighetsbegränsning i API:t.* Kräver en delad lagring (till exempel databasen eller Redis) och är bara ett problem med flera instanser. Tills dess körs tjänsten som en instans.
 
 **Konsekvens:** listan över kända luckor i NEXT_STEPS är kortare men inte tom, och varje punkt som återstår har ett skäl i stället för att bara vara osagd.
+
+## ADR-018: Provkörning med filer, utan lagring och utan gissning
+
+**Bakgrund:** Synka+ (och flera andra) kräver att man kontaktar dem för att komma igång. Vi saknar dessutom Mondido- och Fortnox-adaptrar, så en pilot kan inte köras med riktiga kopplingar än. Ändå går det att visa det kunden bryr sig om (hur stor del som stäms av automatiskt) om de ger oss två filer.
+
+**Beslut:** en provkörning som tar en utbetalningsfil och en fakturafil och kör samma avstämningsmotor, helt utan databas, kund, koppling eller lagring. Tillgänglig som webbsida, terminalverktyg och API-rutt. Filformatet är vårt eget med mappning av egna kolumner, datumformat, belopp i öre och egna typvärden. Tolkningen är **strikt**: tvetydigt belopp (`1.234`), datum, kolumnantal eller citering avvisas i stället för att gissas, en utbetalning läses helt eller inte alls, och nettobeloppet måste finnas i filen eftersom en själv framräknad summa alltid stämmer och gör summakontrollen meningslös. Utbetalningarna körs i datumordning med fakturornas tillstånd framräknat mellan dem, så att två utbetalningar mot samma faktura inte båda blir "klara".
+
+**Alternativ:** att spara uppladdade filer för senare bruk (kräver gallring, personuppgiftsansvar och lagring av kunduppgifter före avtal), eller att tolka filer med automatisk gissning av format (ger tysta fel i bokföringen).
+
+**Konsekvens:** provkörningen bokför ingenting och ersätter inte en koppling, och den bygger på en ögonblicksbild av fakturorna. Mondidos riktiga exportformat är okänt, så en mappning kan behövas; ett riktigt exempel från en handlare gör att vi kan lägga in en färdig. Beräkningen är synkron, så filstorleken är begränsad (5 MB, 50 000 rader).

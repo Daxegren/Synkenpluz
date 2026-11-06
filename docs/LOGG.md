@@ -155,3 +155,12 @@ Sidindelning i SQL för förslag och osäkra anrop, begränsad sammanställning 
 `test/chaos.test.ts` låter ett affärssystem **utan egen idempotens** svara slumpmässigt (avvisa, utföra och tappa svaret, okända fel med och utan utförande) medan arbetare kraschar, utbetalningar körs om i slumpad ordning, klockan hoppar och en människa avgör osäkra anrop enligt RUNBOOK. Sex fasta frön ger samma förlopp varje gång.
 
 **Resultat:** inget kommando utfördes mer än en gång, och allt blev klart exakt en gång. **Kontroll av att testet duger:** med skyddsgatewayen borttagen dubbelbokfördes det i alla sex frön (till exempel `T1:P1:voucher utfördes 2 gånger`), alltså fångar testet det fel det är till för.
+
+## 2026-11-06: provkörning med filer
+
+Provkörning av en utbetalnings- och en fakturafil utan koppling och utan lagring: `src/import/`, `src/service/preview.ts`, `POST /v1/preview`, sidan *Provkör med filer*, `npm run preview` och `docs/PROVKORNING.md`. Se ADR-018. 94 tester i `test/import.test.ts`, inklusive varje problemkod, API-rutten och terminalverktyget, och ett webbläsartest.
+
+**Vad som hittades på vägen:**
+- **En riktig bugg i gränssnittet.** Ett skript som bytte sida direkt efter inloggning visade fel sida: en långsammare, äldre sida (översikten) skrev över den nya när dess svar kom. Det kunde hända vid snabb navigering. Rättat med en navigeringsräknare, och ett webbläsartest med en fördröjd översikt som **fallerar utan rättningen** och går igenom med den.
+- **Ett missvisande tal.** Ett enda felaktigt belopp gav två rader i problemlistan och rubriken "2 problem". Notisen "utbetalningen utelämnas" fick en egen kod (`PAYOUT_OMITTED`) och räknas inte som ett eget problem.
+- **Tvetydiga format.** `1.234` kan vara tolv komma tre eller ett tusen tvåhundra trettiofyra. Parsern avvisar det i stället för att välja, och dokumentationen säger varför.

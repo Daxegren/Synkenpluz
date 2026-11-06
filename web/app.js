@@ -13,6 +13,8 @@ import {
   ONBOARDING_PHASE,
   PAGES,
   PAYOUT_STATUS,
+  parseMappingJson,
+  validatePreviewFiles,
   ROLE_LABEL,
   ageText,
   apiErrorMessage,
@@ -30,6 +32,7 @@ const KEY_STORE = 'synkenpluz.apiKey';
 const PAGE_LABEL = {
   oversikt: 'Översikt',
   start: 'Kom igång',
+  prov: 'Provkör med filer',
   forslag: 'Förslag',
   utbetalningar: 'Utbetalningar',
   avvikelser: 'Avvikelser',
@@ -174,12 +177,18 @@ function errorBox(error) {
   return h('p', { class: 'error', role: 'alert' }, error instanceof ApiError ? error.message : 'Något gick fel.');
 }
 
+// Räknas upp vid varje sidbyte. En sida som är långsam att ladda får aldrig skriva över en nyare sida som användaren hunnit byta till.
+let navigation = 0;
+
 async function load(title, produce) {
+  const mine = navigation;
   setView(title, h('p', { class: 'muted' }, 'Laddar…'));
   try {
     const content = await produce();
+    if (mine !== navigation) return;
     setView(title, ...[content].flat());
   } catch (error) {
+    if (mine !== navigation) return;
     setView(title, errorBox(error));
   }
 }
@@ -625,6 +634,11 @@ async function summaryCard() {
     throw error;
   }
   if (s.payouts.total === 0) return null;
+  return renderSummary(s, 'Siffrorna avser bara de utbetalningar som hittills hämtats i testläge. Inget har bokförts.');
+}
+
+/** Träffsäkerheten som ett kort. Används både för sparade förslag och för provkörning med filer. */
+function renderSummary(s, footnote) {
   return h(
     'div',
     { class: 'card' },
@@ -637,9 +651,151 @@ async function summaryCard() {
           s.exceptionsByCode.map((e) => h('tr', {}, h('td', {}, EXCEPTION_INFO[e.code]?.title ?? e.code), h('td', { class: 'num' }, String(e.count)), h('td', {}, EXCEPTION_INFO[e.code]?.meaning ?? 'Okänd avvikelsekod.'))),
         )
       : h('p', { class: 'muted' }, 'Inga avvikelser.'),
-    h('p', { class: 'muted' }, 'Siffrorna avser bara de utbetalningar som hittills hämtats i testläge. Inget har bokförts.'),
+    h('p', { class: 'muted' }, footnote),
   );
 }
+
+// --- provkör med filer
+async function previewView() {
+  const error = h('p', { class: 'error', role: 'alert' });
+  const result = h('div', { role: 'status', 'aria-live': 'polite' });
+  const payoutsInput = h('input', { id: 'payouts-file', type: 'file', accept: '.csv,text/csv,text/plain' });
+  const invoicesInput = h('input', { id: 'invoices-file', type: 'file', accept: '.csv,text/csv,text/plain' });
+  const partial = h('input', { id: 'partial', type: 'checkbox' });
+  const payoutsMapping = h('textarea', { id: 'payouts-mapping', rows: '4', spellcheck: 'false', placeholder: '{"columns": {"payoutId": "Settlement"}, "dateFormat": "dmy"}' });
+  const invoicesMapping = h('textarea', { id: 'invoices-mapping', rows: '4', spellcheck: 'false', placeholder: '{"columns": {"invoiceId": "Fakturanr"}}' });
+  const submit = h('button', { class: 'btn', type: 'submit' }, 'Provkör');
+
+  const form = h(
+    'form',
+    {
+      novalidate: true,
+      class: 'card',
+      onsubmit: async (event) => {
+        event.preventDefault();
+        error.textContent = '';
+        result.replaceChildren();
+        const payoutsFile = payoutsInput.files?.[0];
+        const invoicesFile = invoicesInput.files?.[0];
+        const problem = validatePreviewFiles({ payouts: payoutsFile, invoices: invoicesFile });
+        if (problem) {
+          error.textContent = problem;
+          return;
+        }
+        const pm = parseMappingJson(payoutsMapping.value, 'utbetalningsfilen');
+        const im = parseMappingJson(invoicesMapping.value, 'fakturafilen');
+        if (pm.error || im.error) {
+          error.textContent = pm.error ?? im.error;
+          return;
+        }
+        submit.disabled = true;
+        result.replaceChildren(h('p', { class: 'muted' }, 'Provkör…'));
+        try {
+          const body = {
+            payoutsCsv: await payoutsFile.text(),
+            invoicesCsv: await invoicesFile.text(),
+            ...(pm.value ? { payoutsMapping: pm.value } : {}),
+            ...(im.value ? { invoicesMapping: im.value } : {}),
+            ...(partial.checked ? { allowPartialPayments: true } : {}),
+          };
+          renderPreview(result, await api('POST', '/v1/preview', body));
+        } catch (err) {
+          result.replaceChildren();
+          error.textContent = err instanceof ApiError ? err.message : 'Något gick fel.';
+        }
+        submit.disabled = false;
+      },
+    },
+    h('h3', {}, 'Ladda upp två filer'),
+    h('div', { class: 'field' }, h('label', { for: 'payouts-file' }, 'Utbetalningsfil (CSV, en rad per transaktion)'), payoutsInput),
+    h('div', { class: 'field' }, h('label', { for: 'invoices-file' }, 'Fakturafil (CSV, en rad per faktura)'), invoicesInput),
+    h('label', { class: 'choice', for: 'partial' }, partial, 'Registrera betalningar som är mindre än fakturans saldo som delbetalningar'),
+    h(
+      'details',
+      {},
+      h('summary', {}, 'Avancerat: egna kolumnnamn och format (valfritt)'),
+      h('p', { class: 'muted' }, 'Om filerna har andra rubriker än våra. JSON med kolumner, datumformat (iso eller dmy), belopp i öre och egna typvärden.'),
+      h('div', { class: 'field' }, h('label', { for: 'payouts-mapping' }, 'Mappning för utbetalningsfilen'), payoutsMapping),
+      h('div', { class: 'field' }, h('label', { for: 'invoices-mapping' }, 'Mappning för fakturafilen'), invoicesMapping),
+    ),
+    error,
+    submit,
+  );
+
+  return [
+    h(
+      'div',
+      { class: 'alert' },
+      h('strong', {}, 'Ingenting sparas och ingenting bokförs. '),
+      'Filerna läses i din webbläsare, skickas hit för att räknas på, och försvinner när svaret är skickat. Ingen koppling till något affärssystem behövs. Resultatet visar hur stor del av utbetalningarna som kan stämmas av automatiskt.',
+    ),
+    form,
+    result,
+  ];
+}
+
+function renderPreview(into, data) {
+  const blocks = [];
+  const problems = [
+    ...data.files.payouts.problems.map((p) => ['Utbetalningsfilen', p]),
+    ...data.files.invoices.problems.map((p) => ['Fakturafilen', p]),
+  ];
+  blocks.push(
+    h(
+      'p',
+      { class: 'muted' },
+      `Utbetalningsfilen: ${data.files.payouts.rows} rader, ${data.files.payouts.accepted} utbetalningar lästes. Fakturafilen: ${data.files.invoices.rows} rader, ${data.files.invoices.accepted} fakturor lästes.`,
+    ),
+  );
+  // Notiser om att en utbetalning utelämnas är följder av ett annat problem och räknas inte som egna problem.
+  const real = problems.filter(([, p]) => p.code !== 'PAYOUT_OMITTED').length;
+  if (problems.length > 0) {
+    blocks.push(
+      h(
+        'div',
+        { class: 'alert warn' },
+        h('strong', {}, `${real} problem i filerna${data.files.payouts.problemsTruncated || data.files.invoices.problemsTruncated ? ' (fler finns)' : ''}. `),
+        'Det som har ett problem lästes inte in och räknas inte med i resultatet nedan.',
+        h('ul', {}, problems.map(([file, p]) => h('li', {}, `${file}${p.row ? `, rad ${p.row}` : ''}: ${p.message}`))),
+      ),
+    );
+  }
+  if (data.summary.payouts.total === 0) {
+    blocks.push(h('p', { class: 'muted' }, 'Inga utbetalningar att räkna på.'));
+  } else {
+    blocks.push(renderSummary(data.summary, 'Beräknat på filerna du laddade upp. Inget har sparats eller bokförts.'));
+    blocks.push(
+      h(
+        'div',
+        { class: 'card' },
+        h('h3', {}, 'Per utbetalning'),
+        table(
+          ['Utbetalning', 'Datum', 'Status', { label: 'Matchade rader', num: true }, { label: 'Avvikelser', num: true }],
+          data.payouts.map((p) => {
+            const status = PAYOUT_STATUS[p.status];
+            return h(
+              'tr',
+              {},
+              h('td', { class: 'mono' }, p.payoutId),
+              h('td', {}, p.date),
+              h('td', {}, badge(status?.tone ?? 'neutral', status?.label ?? p.status)),
+              h('td', { class: 'num' }, String(p.matchedLines)),
+              h(
+                'td',
+                { class: 'num' },
+                p.exceptions.length === 0
+                  ? '0'
+                  : h('details', {}, h('summary', {}, String(p.exceptions.length)), h('ul', {}, p.exceptions.map((e) => h('li', {}, `${EXCEPTION_INFO[e.code]?.title ?? e.code}${e.lineId ? ` (rad ${e.lineId})` : ''}: ${e.message}`)))),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+  into.replaceChildren(...blocks);
+}
+
 
 function ledgerCard(ledger) {
   const result = h('div', { role: 'status' });
@@ -816,6 +972,7 @@ function inDoubtItem(g) {
 const VIEWS = {
   oversikt: () => load('Översikt', overviewView),
   start: () => load('Kom igång', startView),
+  prov: () => load('Provkör med filer', previewView),
   forslag: ({ id }) => load(id ? `Förslag ${id}` : 'Förslag', () => (id ? proposalDetailView(id) : proposalsView())),
   utbetalningar: ({ id }) => load(id ? `Utbetalning ${id}` : 'Utbetalningar', () => (id ? payoutDetailView(id) : payoutsView())),
   avvikelser: () => load('Avvikelser', exceptionsView),
@@ -836,6 +993,7 @@ async function route() {
     loginView();
     return;
   }
+  navigation++;
   const parsed = parseHash(location.hash);
   renderNav(parsed.page);
   await VIEWS[parsed.page](parsed);

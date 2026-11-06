@@ -208,6 +208,12 @@ Svar `200`: `{"id": "...", "status": "pending"}`. `409` om kommandot inte finns,
 
 Varje nyckel har en roll: `viewer` (läsa), `operator` (även hantera avvikelser, köa om, avgöra osäkra anrop, testa anslutningen) eller `approver` (även godkänna go-live). Saknas rollen räcker den inte till en åtgärd svarar API:t `403 {"error":{"code":"forbidden","message":"Åtgärden kräver rollen approver. Din nyckel har rollen operator"}}`. Rollen kontrolleras före validering av body. Rutterna `POST /v1/exceptions/:id/resolve`, `POST /v1/commands/:id/retry`, `POST /v1/guard/resolve` och `POST /v1/onboarding/check-connection` kräver `operator`, `POST /v1/onboarding/go-live` kräver `approver`. Alla `GET` kräver bara en giltig nyckel.
 
+### `POST /v1/preview`
+
+Provkörning med filer (se [PROVKORNING.md](PROVKORNING.md)). Kräver rollen `operator`. **Ingenting sparas**: ingen databas anropas, ingen kö eller lista berörs och ingen revisionspost skrivs. Body (högst cirka 24 MB; varje fil högst 5 000 000 tecken): `{ "payoutsCsv": "...", "invoicesCsv": "...", "payoutsMapping": { ... }, "invoicesMapping": { ... }, "accounts": { ... }, "allowPartialPayments": false }`. Bara de två filerna krävs. Mappningarna ändrar kolumnnamn och format, och `accounts` ger konton för verifikatet (annars exempelkonton).
+
+Svar `200`: `{ "summary": { ... samma som GET /v1/proposals/summary ... }, "payouts": [ { "payoutId", "date", "status", "matchedLines", "unmatchedLines", "exceptions": [ { "code", "lineId", "message" } ] } ], "files": { "payouts": { "rows", "accepted", "problems": [ { "code", "row", "subject", "message" } ], "problemsTruncated" }, "invoices": { ... } } }`. En trasig fil ger ett problem med kod `FILE_INVALID`, inte ett fel. Högst 200 problem per fil returneras. `400` vid ogiltig indata (okänd kolumn i mappningen, för stor fil, ogiltigt konto), `403` för rollen `viewer`.
+
 ### `GET /v1/onboarding`
 
 Kundens onboarding: vad som återstår innan förslagen kan godkännas. Finns bara om onboarding-tjänsten är kopplad (annars `404`).
