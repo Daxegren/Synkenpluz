@@ -149,3 +149,9 @@ Kronologisk logg över vad som byggts, hur och vad granskningarna hittade. Lägg
 Sidindelning i SQL för förslag och osäkra anrop, begränsad sammanställning (`truncated`), `FORTNOX_RATE_LIMIT` med ett test som mäter värsta fönstret. Se ADR-017, som också förklarar vad som medvetet lämnades: främmande nycklar, schemalagd gallring, e-postlarm och delad hastighetsbegränsning.
 
 **Det som den "naturliga" inställningen hade gett:** 5 anrop per sekund med skur 25 ser ut att passa Fortnox gräns (25 per 5 sekunder) men ger upp till 50 anrop i ett fönster, eftersom hinken både tömmer skuren och fylls på under samma 5 sekunder. Testet visar det.
+
+## 2026-11-06: slumpmässigt systemprov
+
+`test/chaos.test.ts` låter ett affärssystem **utan egen idempotens** svara slumpmässigt (avvisa, utföra och tappa svaret, okända fel med och utan utförande) medan arbetare kraschar, utbetalningar körs om i slumpad ordning, klockan hoppar och en människa avgör osäkra anrop enligt RUNBOOK. Sex fasta frön ger samma förlopp varje gång.
+
+**Resultat:** inget kommando utfördes mer än en gång, och allt blev klart exakt en gång. **Kontroll av att testet duger:** med skyddsgatewayen borttagen dubbelbokfördes det i alla sex frön (till exempel `T1:P1:voucher utfördes 2 gånger`), alltså fångar testet det fel det är till för.
